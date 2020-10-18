@@ -1,0 +1,16 @@
+﻿cmake_minimum_required(VERSION 3.17)
+project(opal)
+
+set(CMAKE_CXX_STANDARD 20)
+
+add_executable(opal src/main.cpp src/main.cpp)
+
+find_package(Vulkan REQUIRED)
+target_include_directories(${PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
+
+find_package(glm CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} glm)
+
+find_package(glfw3 CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} glfw)
