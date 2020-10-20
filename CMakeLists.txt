@@ -15,6 +15,9 @@ target_link_libraries(${PROJECT_NAME} glm)
 find_package(glfw3 CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} glfw)
 
+find_path(STB_INCLUDE_DIRs "stb.h")
+target_include_directories(${PROJECT_NAME} PRIVATE ${STB_INCLUDE_DIRS})
+
 # shaders
 
 if (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "AMD64")
@@ -53,3 +56,14 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "${PROJECT_BINARY_DIR}/shaders"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
         )
+
+# textures
+# todo: make a resource building system
+
+#add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+#        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures/"
+#        COMMAND ${CMAKE_COMMAND} -E copy_directory
+#        "${PROJECT_BINARY_DIR}/textures"
+#        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures"
+#        )
+file(COPY "src/textures" DESTINATION ${PROJECT_BINARY_DIR})
