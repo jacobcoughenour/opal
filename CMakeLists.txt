@@ -3,20 +3,25 @@ project(opal)
 
 set(CMAKE_CXX_STANDARD 20)
 
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup()
+
 add_executable(opal src/main.cpp)
 
 find_package(Vulkan REQUIRED)
 target_include_directories(${PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
 
-find_package(glm CONFIG REQUIRED)
-target_link_libraries(${PROJECT_NAME} glm)
+target_link_libraries(${PROJECT_NAME} ${CONAN_LIBS})
 
-find_package(glfw3 CONFIG REQUIRED)
-target_link_libraries(${PROJECT_NAME} glfw)
-
-find_path(STB_INCLUDE_DIRs "stb.h")
-target_include_directories(${PROJECT_NAME} PRIVATE ${STB_INCLUDE_DIRS})
+#find_package(glm CONFIG REQUIRED)
+#target_link_libraries(${PROJECT_NAME} glm)
+#
+#find_package(glfw3 CONFIG REQUIRED)
+#target_link_libraries(${PROJECT_NAME} glfw)
+#
+#find_path(STB_INCLUDE_DIRs "stb.h")
+#target_include_directories(${PROJECT_NAME} PRIVATE ${STB_INCLUDE_DIRS})
 
 # shaders
 
@@ -60,10 +65,10 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 # textures
 # todo: make a resource building system
 
-#add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures/"
-#        COMMAND ${CMAKE_COMMAND} -E copy_directory
-#        "${PROJECT_BINARY_DIR}/textures"
-#        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures"
-#        )
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures/"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${PROJECT_BINARY_DIR}/textures"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures"
+        )
 file(COPY "src/textures" DESTINATION ${PROJECT_BINARY_DIR})
