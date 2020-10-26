@@ -1,4 +1,5 @@
 ﻿[requires]
+zlib/1.2.11
 glm/0.9.9.5
 glfw/3.3.2
 stb/20200203

@@ -3,25 +3,61 @@ project(opal)
 
 set(CMAKE_CXX_STANDARD 20)
 
+#file(GLOB SOURCE_FILES src/*.cpp src/*.hpp src/*.inl src/*.h src/*.c)
+set(SOURCE_FILES)
+
+LIST(APPEND SOURCE_FILES
+        src/main.cpp
+        src/opal.cpp
+        src/opal.h
+        )
+
 include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
 conan_basic_setup()
 
-add_executable(opal src/main.cpp)
+# include nvidia shared sources submodule
+SET(BASE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/nvpro)
+include(${BASE_DIRECTORY}/shared_sources/CMakeLists_include.txt)
 
-find_package(Vulkan REQUIRED)
-target_include_directories(${PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
+
+
+_add_package_VulkanSDK()
+_add_package_ImGUI()
+
+#_add_shared_sources_lib()
+
+add_subdirectory(${BASE_DIRECTORY}/shared_sources ${CMAKE_BINARY_DIR}/shared_sources)
+#_optional_package_VulkanSDK()
+#_add_package_ImGUI()
+
+_process_shared_cmake_code()
+
+# putting this into one of the other branches didn't work
+if(WIN32)
+    add_definitions(-DVK_USE_PLATFORM_WIN32_KHR)
+else()
+    add_definitions(-DVK_USE_PLATFORM_XLIB_KHR)
+    add_definitions(-DVK_USE_PLATFORM_XCB_KHR)
+endif(WIN32)
+add_definitions(-DVULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
+
+
+add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${PACKAGE_SOURCE_FILES})
+
+# include vulkan sdk
+#find_package(Vulkan REQUIRED)
+#target_include_directories(${PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIRS})
+#target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
+
 
 target_link_libraries(${PROJECT_NAME} ${CONAN_LIBS})
+target_link_libraries(${PROJECT_NAME} ${PLATFORM_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} shared_sources)
 
-#find_package(glm CONFIG REQUIRED)
-#target_link_libraries(${PROJECT_NAME} glm)
-#
-#find_package(glfw3 CONFIG REQUIRED)
-#target_link_libraries(${PROJECT_NAME} glfw)
-#
-#find_path(STB_INCLUDE_DIRs "stb.h")
-#target_include_directories(${PROJECT_NAME} PRIVATE ${STB_INCLUDE_DIRS})
+_copy_binaries_to_target(${PROJECT_NAME})
+
+
+
 
 # shaders
 
