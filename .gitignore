@@ -1,2 +1,6 @@
 ﻿bin
 cmake-build-debug
+
+log_opal.txt
+
+build/

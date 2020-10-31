@@ -5,3 +5,6 @@
 [submodule "nvpro/shared_external"]
 	path = thirdparty/nvpro/shared_external
 	url = git@github.com:nvpro-samples/shared_external.git
+[submodule "glTF-Sample-Models"]
+	path = glTF-Sample-Models
+	url = git@github.com:KhronosGroup/glTF-Sample-Models.git

@@ -2,5 +2,8 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/glTF-Sample-Models" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/thirdparty/nvpro/shared_external" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/thirdparty/nvpro/shared_sources" vcs="Git" />
   </component>
 </project>

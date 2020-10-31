@@ -1,0 +1,25 @@
+{
+	"configurations": [
+		{
+			"name": "Win32",
+			"includePath": [
+				"${workspaceFolder}/**",
+				"C:/Users/jacob/.conan/data/**",
+				"M:/VulkanSDK/1.2.154.1/Include"
+			],
+			"defines": ["_DEBUG", "UNICODE", "_UNICODE"],
+			"windowsSdkVersion": "10.0.18362.0",
+			"compilerPath": "M:/Program Files/mingw-w64/x86_64-8.1.0-posix-seh-rt_v6-rev0/mingw64/bin/g++.exe",
+			"cStandard": "c11",
+			"cppStandard": "c++20",
+			"intelliSenseMode": "gcc-x64",
+			"configurationProvider": "ms-vscode.cmake-tools",
+			"browse": {
+				"limitSymbolsToIncludedHeaders": true,
+				"databaseFilename": "",
+				"path": ["${workspaceRoot}"]
+			}
+		}
+	],
+	"version": 4
+}
