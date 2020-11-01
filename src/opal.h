@@ -60,6 +60,7 @@ private:
 	void createTextureImages(const vk::CommandBuffer &cmd_buf, const std::vector<std::string> &p_textures);
 
 	bool raytracing_enabled = false;
+	int max_frames{ 8 };
 
 	nvmath::vec4f clear_color = nvmath::vec4f(1, 1, 1, 1.f);
 	vk::ClearValue clear_color_values[2];

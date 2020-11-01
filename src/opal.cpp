@@ -37,7 +37,9 @@ void Opal::setup(const vk::Instance &instance,
 
 	initGUI(0);
 
-	loadModel(nvh::findFile("media/scenes/Medieval_building.obj", default_search_paths));
+	loadModel(nvh::findFile("media/scenes/wuson.obj", default_search_paths));
+	loadModel(nvh::findFile("media/scenes/sphere.obj", default_search_paths),
+			nvmath::scale_mat4(nvmath::vec3f(1.5f)) * nvmath::translation_mat4(nvmath::vec3f(0.0f, 1.0f, 0.0f)));
 	loadModel(nvh::findFile("media/scenes/plane.obj", default_search_paths));
 
 	createOffscreenRender();
@@ -237,27 +239,39 @@ void Opal::render() {
 	// update camera buffer
 	updateUniformBuffer();
 
+	// render UI
 	{
-		ImGui::ColorEdit3("Clear color", reinterpret_cast<float *>(&clear_color));
-		ImGui::Checkbox("Ray Tracer mode", &raytracing_enabled);
+		bool changed = false;
+
+		changed |= ImGui::ColorEdit3("Clear color", reinterpret_cast<float *>(&clear_color));
+		changed |= ImGui::Checkbox("Ray Tracer mode", &raytracing_enabled);
+		changed |= ImGui::InputInt("Max Accumulation Frames", &max_frames);
+		max_frames = std::max(max_frames, 1);
 
 		static int item = 1;
+
 		if (ImGui::Combo("Up Vector", &item, "X\0Y\0Z\0\0")) {
 			nvmath::vec3f pos, eye, up;
 			CameraManip.getLookat(pos, eye, up);
 			up = nvmath::vec3f(item == 0, item == 1, item == 2);
 			CameraManip.setLookat(pos, eye, up);
+			changed = true;
 		}
-		ImGui::SliderFloat3("Light Position", &push_constant.light_position.x, -20.f, 20.f);
-		ImGui::SliderFloat("Light Intensity", &push_constant.light_intensity, 0.f, 100.f);
-		ImGui::RadioButton("Point", &push_constant.light_type, 0);
+
+		changed |= ImGui::SliderFloat3("Light Position", &push_constant.light_position.x, -20.f, 20.f);
+		changed |= ImGui::SliderFloat("Light Intensity", &push_constant.light_intensity, 0.f, 100.f);
+		changed |= ImGui::RadioButton("Point", &push_constant.light_type, 0);
 		ImGui::SameLine();
-		ImGui::RadioButton("Infinite", &push_constant.light_type, 1);
+		changed |= ImGui::RadioButton("Infinite", &push_constant.light_type, 1);
 
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
 				1000.0f / ImGui::GetIO().Framerate,
 				ImGui::GetIO().Framerate);
 		ImGui::Render();
+
+		if (changed) {
+			resetFrame();
+		}
 	}
 
 	// queue up next frame
@@ -282,7 +296,6 @@ void Opal::render() {
 		// raytrace scene objects
 		raytrace(cmd_buf);
 	} else {
-		// todo do we need to setup this info for the raytracing too?
 
 		vk::RenderPassBeginInfo offscreen_pass_info;
 		offscreen_pass_info.setClearValueCount(2);
@@ -361,6 +374,11 @@ void Opal::rasterize(const vk::CommandBuffer &cmd_buf) {
 
 void Opal::raytrace(const vk::CommandBuffer &cmd_buf) {
 
+	updateFrame();
+	if (rt_push_constants.frame >= max_frames) {
+		return;
+	}
+
 	debug.beginLabel(cmd_buf, "Raytrace");
 
 	// update push constants
@@ -368,8 +386,6 @@ void Opal::raytrace(const vk::CommandBuffer &cmd_buf) {
 	rt_push_constants.light_position = push_constant.light_position;
 	rt_push_constants.light_intensity = push_constant.light_intensity;
 	rt_push_constants.light_type = push_constant.light_type;
-
-	updateFrame();
 
 	cmd_buf.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, rt_graphics_pipeline);
 	cmd_buf.bindDescriptorSets(
@@ -581,21 +597,25 @@ void Opal::createDescriptorSetLayout() {
 	// camera matrices (binding = 0)
 	descriptor_set_layout_bindings.addBinding(vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
 	// materials (binding = 1)
-	descriptor_set_layout_bindings.addBinding(
-			vkDS(1, vkDT::eStorageBuffer, nb_obj, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
+	descriptor_set_layout_bindings.addBinding(vkDS(1,
+			vkDT::eStorageBuffer,
+			nb_obj,
+			vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
 	// scene description (binding = 2)
-	descriptor_set_layout_bindings.addBinding(
-			vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
+	descriptor_set_layout_bindings.addBinding(vkDS(
+			2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
 	// textures (binding = 3)
 	descriptor_set_layout_bindings.addBinding(
 			vkDS(3, vkDT::eCombinedImageSampler, nb_txt, vkSS::eFragment | vkSS::eClosestHitKHR));
 	// materials (binding = 4)
 	descriptor_set_layout_bindings.addBinding(
-			vkDS(4, vkDT::eStorageBuffer, nb_obj, vkSS::eFragment | vkSS::eClosestHitKHR));
+			vkDS(4, vkDT::eStorageBuffer, nb_obj, vkSS::eFragment | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
 	// storing vertices (binding = 5)
-	descriptor_set_layout_bindings.addBinding(vkDS(5, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR));
+	descriptor_set_layout_bindings.addBinding(
+			vkDS(5, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
 	// storgin indices (binding = 6)
-	descriptor_set_layout_bindings.addBinding(vkDS(6, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR));
+	descriptor_set_layout_bindings.addBinding(
+			vkDS(6, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
 
 	descriptor_set_layout = descriptor_set_layout_bindings.createLayout(m_device);
 	descriptor_pool = descriptor_set_layout_bindings.createPool(m_device, 1);
@@ -706,7 +726,7 @@ nvvk::RaytracingBuilderKHR::Blas Opal::objectToVkGeometryKHR(const ObjModel &mod
 
 	vk::AccelerationStructureGeometryKHR as_geometry;
 	as_geometry.setGeometryType(as_info.geometryType);
-	as_geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+	as_geometry.setFlags(vk::GeometryFlagBitsKHR::eNoDuplicateAnyHitInvocation);
 	as_geometry.geometry.setTriangles(triangles);
 
 	vk::AccelerationStructureBuildOffsetInfoKHR offset;
@@ -808,6 +828,10 @@ void Opal::createRtPipeline() {
 			m_device, nvh::loadFile("shaders/raytraceShadow.rmiss.spv", true, default_search_paths, true));
 	auto ray_closest_hit_shader = nvvk::createShaderModule(
 			m_device, nvh::loadFile("shaders/raytrace.rchit.spv", true, default_search_paths, true));
+	auto ray_any_hit_shader_0 = nvvk::createShaderModule(
+			m_device, nvh::loadFile("shaders/raytrace_0.rahit.spv", true, default_search_paths, true));
+	auto ray_any_hit_shader_1 = nvvk::createShaderModule(
+			m_device, nvh::loadFile("shaders/raytrace_1.rahit.spv", true, default_search_paths, true));
 
 	std::vector<vk::PipelineShaderStageCreateInfo> stages;
 
@@ -848,6 +872,16 @@ void Opal::createRtPipeline() {
 		VK_SHADER_UNUSED_KHR };
 	stages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, ray_closest_hit_shader, "main" });
 	hit_group_info.setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
+	stages.push_back({ {}, vk::ShaderStageFlagBits::eAnyHitKHR, ray_any_hit_shader_0, "main" });
+	hit_group_info.setAnyHitShader(static_cast<uint32_t>(stages.size() - 1));
+	rt_shader_groups.push_back(hit_group_info);
+
+	// payload 1
+
+	// not used by shadow (skipped)
+	hit_group_info.setClosestHitShader(VK_SHADER_UNUSED_KHR);
+	stages.push_back({ {}, vk::ShaderStageFlagBits::eAnyHitKHR, ray_any_hit_shader_1, "main" });
+	hit_group_info.setAnyHitShader(static_cast<uint32_t>(stages.size() - 1));
 	rt_shader_groups.push_back(hit_group_info);
 
 	// create the pipeline
@@ -889,6 +923,8 @@ void Opal::createRtPipeline() {
 	m_device.destroy(raymiss_shader);
 	m_device.destroy(shadow_miss_shader);
 	m_device.destroy(ray_closest_hit_shader);
+	m_device.destroy(ray_any_hit_shader_0);
+	m_device.destroy(ray_any_hit_shader_1);
 }
 
 void Opal::createRtShaderBindingTable() {

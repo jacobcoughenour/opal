@@ -26,44 +26,58 @@ layout(push_constant) uniform Constants {
 }
 pushC;
 
+const int NBSAMPLES = 8;
+
 void main() {
 
 	// init random jitter seed
-	uint seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, pushC.frame);
+	prd.seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, pushC.frame);
 
-	// jitter offset
-	vec2 subpixel_jitter =
-			// if new frame
-			pushC.frame == 0
-					// center of pixel
-					? vec2(0.5f, 0.5f)
-					// random point in the pixel
-					: vec2(rnd(seed), rnd(seed));
+	vec3 hitValues = vec3(0);
 
-	const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + subpixel_jitter;
-	const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
-	vec2 d = inUV * 2.0 - 1.0;
+	for (int i = 0; i < NBSAMPLES; i++) {
 
-	vec4 origin = cam.viewInverse * vec4(0, 0, 0, 1);
-	vec4 target = cam.projInverse * vec4(d.x, d.y, 1, 1);
-	vec4 direction = cam.viewInverse * vec4(normalize(target.xyz), 0);
+		// jitter offset
+		vec2 subpixel_jitter =
+				// if new frame
+				pushC.frame == 0
+						// center of pixel
+						? vec2(0.5f, 0.5f)
+						// random point in the pixel
+						: vec2(rnd(prd.seed), rnd(prd.seed));
 
-	uint rayFlags = gl_RayFlagsOpaqueEXT;
-	float tMin = 0.001;
-	float tMax = 10000.0;
+		const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + subpixel_jitter;
+		const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
+		vec2 d = inUV * 2.0 - 1.0;
 
-	traceRayEXT(topLevelAS, // acceleration structure
-			rayFlags, // rayFlags
-			0xFF, // cullMask
-			0, // sbtRecordOffset
-			0, // sbtRecordStride
-			0, // missIndex
-			origin.xyz, // ray origin
-			tMin, // ray min range
-			direction.xyz, // ray direction
-			tMax, // ray max range
-			0 // payload (location = 0)
-	);
+		vec4 origin = cam.viewInverse * vec4(0, 0, 0, 1);
+		vec4 target = cam.projInverse * vec4(d.x, d.y, 1, 1);
+		vec4 direction = cam.viewInverse * vec4(normalize(target.xyz), 0);
+
+		uint rayFlags = gl_RayFlagsNoneEXT;
+		float tMin = 0.001;
+		float tMax = 10000.0;
+
+		prd.seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, pushC.frame);
+
+		traceRayEXT(topLevelAS, // acceleration structure
+				rayFlags, // rayFlags
+				0xFF, // cullMask
+				0, // sbtRecordOffset
+				0, // sbtRecordStride
+				0, // missIndex
+				origin.xyz, // ray origin
+				tMin, // ray min range
+				direction.xyz, // ray direction
+				tMax, // ray max range
+				0 // payload (location = 0)
+		);
+
+		hitValues += prd.hitValue;
+	}
+
+	// average the samples
+	prd.hitValue = hitValues / NBSAMPLES;
 
 	// if first frame
 	if (pushC.frame == 0) {

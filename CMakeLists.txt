@@ -110,13 +110,13 @@ foreach (GLSL ${GLSL_SOURCE_FILES})
     add_custom_command(
             OUTPUT ${SPIRV}
             COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_BINARY_DIR}/shaders/"
-            # COMMAND echo ${GLSLC} --target-env=${VULKAN_TARGET_ENV} -o ${SPIRV} ${GLSL}
+            COMMAND echo ${GLSLC} --target-env=${VULKAN_TARGET_ENV} -o ${SPIRV} ${GLSL}
             COMMAND ${GLSLC} --target-env=${VULKAN_TARGET_ENV} -o ${SPIRV} ${GLSL}
             # COMMAND ${SPIRVDIS} -o ${DIS} ${SPIRV} --color --offsets
             # COMMAND ${SPIRVCFG} -o ${DOT} ${SPIRV}
             MAIN_DEPENDENCY ${GLSL}
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-    set_property(SOURCE ${GLSL} APPEND PROPERTY OBJECT_DEPENDS ${SPIRV})
+    # set_property(SOURCE ${GLSL} APPEND PROPERTY OBJECT_DEPENDS ${SPIRV})
     list(APPEND GLSL_SOURCES ${GLSL})
     list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach (GLSL)
