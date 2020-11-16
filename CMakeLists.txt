@@ -95,6 +95,7 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
         "src/shaders/*.comp"
         "src/shaders/*.frag"
         "src/shaders/*.vert"
+        "src/shaders/*.rint"
         "src/shaders/*.rchit"
         "src/shaders/*.rahit"
         "src/shaders/*.rmiss"

@@ -22,6 +22,16 @@ public:
 		nvvk::Buffer mat_index_buffer;
 	};
 
+	struct Sphere {
+		nvmath::vec3f center;
+		float radius;
+	};
+
+	struct Aabb {
+		nvmath::vec3f minimum;
+		nvmath::vec3f maximum;
+	};
+
 	struct ObjInstance {
 		uint32_t object_index{ 0 };
 		uint32_t texture_offset{ 0 };
@@ -71,6 +81,12 @@ private:
 
 	std::vector<ObjModel> object_models;
 	std::vector<ObjInstance> object_instances;
+
+	std::vector<Sphere> spheres;
+	nvvk::Buffer spheres_buffer;
+	nvvk::Buffer spheres_aabb_buffer;
+	nvvk::Buffer spheres_mat_color_buffer;
+	nvvk::Buffer spheres_mat_index_buffer;
 
 	nvvk::Buffer camera_mat;
 	nvvk::Buffer scene_descriptor;
@@ -167,6 +183,9 @@ private:
 	 * converts object geometry to ray tracing acceleration structure
 	 */
 	nvvk::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel &model);
+
+	void createSpheres();
+	nvvk::RaytracingBuilderKHR::Blas sphereToVkGeometryKHR();
 
 	/**
 	 * create bottom level acceleration structure

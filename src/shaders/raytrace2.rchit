@@ -20,6 +20,8 @@ layout(binding = 4, set = 1)  buffer MatIndexColorBuffer { int i[]; } matIndex[]
 layout(binding = 5, set = 1, scalar) buffer Vertices { Vertex v[]; } vertices[];
 layout(binding = 6, set = 1) buffer Indices { uint i[]; } indices[];
 
+layout(binding = 7, set = 1, scalar) buffer allSpheres_ {Sphere i[];} allSpheres;
+
 // clang-format on
 
 layout(push_constant) uniform Constants {
@@ -31,59 +33,46 @@ layout(push_constant) uniform Constants {
 pushC;
 
 void main() {
+
+	vec3 worldPos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
+
 	// Object of this instance
-	uint objId = scnDesc.i[gl_InstanceID].objId;
-
-	// Indices of the triangle
-	ivec3 ind = ivec3(indices[nonuniformEXT(objId)].i[3 * gl_PrimitiveID + 0], //
-			indices[nonuniformEXT(objId)].i[3 * gl_PrimitiveID + 1], //
-			indices[nonuniformEXT(objId)].i[3 * gl_PrimitiveID + 2]); //
-	// Vertex of the triangle
-	Vertex v0 = vertices[nonuniformEXT(objId)].v[ind.x];
-	Vertex v1 = vertices[nonuniformEXT(objId)].v[ind.y];
-	Vertex v2 = vertices[nonuniformEXT(objId)].v[ind.z];
-
-	const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
+	Sphere instance = allSpheres.i[gl_PrimitiveID];
 
 	// Computing the normal at hit position
-	vec3 normal = v0.nrm * barycentrics.x + v1.nrm * barycentrics.y + v2.nrm * barycentrics.z;
-	// Transforming the normal to world space
-	normal = normalize(vec3(scnDesc.i[gl_InstanceID].transfoIT * vec4(normal, 0.0)));
+	vec3 normal = normalize(worldPos - instance.center);
 
-	// Computing the coordinates of the hit position
-	vec3 worldPos = v0.pos * barycentrics.x + v1.pos * barycentrics.y + v2.pos * barycentrics.z;
-	// Transforming the position to world space
-	worldPos = vec3(scnDesc.i[gl_InstanceID].transfo * vec4(worldPos, 1.0));
+	if (gl_HitKindEXT == KIND_CUBE) {
+		vec3 absN = abs(normal);
+		float maxC = max(max(absN.x, absN.y), absN.z);
+		normal = (maxC == absN.x) ? vec3(sign(normal.x), 0, 0)
+								  : (maxC == absN.y) ? vec3(0, sign(normal.y), 0) : vec3(0, 0, sign(normal.z));
+	}
 
-	// Vector toward the light
+	// direction towards the light
 	vec3 L;
 	float lightIntensity = pushC.lightIntensity;
 	float lightDistance = 100000.0;
-	// Point light
+
+	// point light
 	if (pushC.lightType == 0) {
 		vec3 lDir = pushC.lightPosition - worldPos;
 		lightDistance = length(lDir);
 		lightIntensity = pushC.lightIntensity / (lightDistance * lightDistance);
 		L = normalize(lDir);
-	} else // Directional light
-	{
+	} else {
+		// directional light
 		L = normalize(pushC.lightPosition - vec3(0));
 	}
 
 	// Material of the object
-	int matIdx = matIndex[nonuniformEXT(objId)].i[gl_PrimitiveID];
-	WaveFrontMaterial mat = materials[nonuniformEXT(objId)].m[matIdx];
+	int matIdx = matIndex[nonuniformEXT(gl_InstanceID)].i[gl_PrimitiveID];
+	WaveFrontMaterial mat = materials[nonuniformEXT(gl_InstanceID)].m[matIdx];
 
 	// Diffuse
 	vec3 diffuse = computeDiffuse(mat, L, normal);
-	if (mat.textureId >= 0) {
-		uint txtId = mat.textureId + scnDesc.i[gl_InstanceID].txtOffset;
-		vec2 texCoord = v0.texCoord * barycentrics.x + v1.texCoord * barycentrics.y + v2.texCoord * barycentrics.z;
-		diffuse *= texture(textureSamplers[nonuniformEXT(txtId)], texCoord).xyz;
-	}
-
 	vec3 specular = vec3(0);
-	float attenuation = 1;
+	float attenuation = 0.3;
 
 	// Tracing shadow ray only if the light is visible from the surface
 	if (dot(normal, L) > 0) {
@@ -109,6 +98,7 @@ void main() {
 		if (isShadowed) {
 			attenuation = 0.3;
 		} else {
+			attenuation = 1;
 			// Specular
 			specular = computeSpecular(mat, gl_WorldRayDirectionEXT, L, normal);
 		}

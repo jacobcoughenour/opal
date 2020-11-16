@@ -11,6 +11,8 @@
 #include <nvvk/renderpasses_vk.hpp>
 #include <nvvk/shaders_vk.hpp>
 
+#include <random>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "fileformats/stb_image.h"
 #include "obj_loader.h"
@@ -37,10 +39,12 @@ void Opal::setup(const vk::Instance &instance,
 
 	initGUI(0);
 
-	loadModel(nvh::findFile("media/scenes/wuson.obj", default_search_paths));
-	loadModel(nvh::findFile("media/scenes/sphere.obj", default_search_paths),
-			nvmath::scale_mat4(nvmath::vec3f(1.5f)) * nvmath::translation_mat4(nvmath::vec3f(0.0f, 1.0f, 0.0f)));
+	// loadModel(nvh::findFile("media/scenes/wuson.obj", default_search_paths));
+	// loadModel(nvh::findFile("media/scenes/sphere.obj", default_search_paths),
+	// 		nvmath::scale_mat4(nvmath::vec3f(1.5f)) * nvmath::translation_mat4(nvmath::vec3f(0.0f, 1.0f, 0.0f)));
 	loadModel(nvh::findFile("media/scenes/plane.obj", default_search_paths));
+
+	createSpheres();
 
 	createOffscreenRender();
 	createDescriptorSetLayout();
@@ -82,6 +86,11 @@ void Opal::destroyResources() {
 	for (auto &tex : textures) {
 		alloc.destroy(tex);
 	}
+
+	alloc.destroy(spheres_buffer);
+	alloc.destroy(spheres_aabb_buffer);
+	alloc.destroy(spheres_mat_color_buffer);
+	alloc.destroy(spheres_mat_index_buffer);
 
 	// destroy post pipeline
 
@@ -597,25 +606,24 @@ void Opal::createDescriptorSetLayout() {
 	// camera matrices (binding = 0)
 	descriptor_set_layout_bindings.addBinding(vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
 	// materials (binding = 1)
-	descriptor_set_layout_bindings.addBinding(vkDS(1,
-			vkDT::eStorageBuffer,
-			nb_obj,
-			vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
+	descriptor_set_layout_bindings.addBinding(
+			vkDS(1, vkDT::eStorageBuffer, nb_obj + 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
 	// scene description (binding = 2)
-	descriptor_set_layout_bindings.addBinding(vkDS(
-			2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
+	descriptor_set_layout_bindings.addBinding(
+			vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
 	// textures (binding = 3)
 	descriptor_set_layout_bindings.addBinding(
 			vkDS(3, vkDT::eCombinedImageSampler, nb_txt, vkSS::eFragment | vkSS::eClosestHitKHR));
 	// materials (binding = 4)
 	descriptor_set_layout_bindings.addBinding(
-			vkDS(4, vkDT::eStorageBuffer, nb_obj, vkSS::eFragment | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
+			vkDS(4, vkDT::eStorageBuffer, nb_obj + 1, vkSS::eFragment | vkSS::eClosestHitKHR));
 	// storing vertices (binding = 5)
+	descriptor_set_layout_bindings.addBinding(vkDS(5, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR));
+	// storing indices (binding = 6)
+	descriptor_set_layout_bindings.addBinding(vkDS(6, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR));
+	// storing spheres (binding = 7)
 	descriptor_set_layout_bindings.addBinding(
-			vkDS(5, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
-	// storgin indices (binding = 6)
-	descriptor_set_layout_bindings.addBinding(
-			vkDS(6, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
+			vkDS(7, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eIntersectionKHR));
 
 	descriptor_set_layout = descriptor_set_layout_bindings.createLayout(m_device);
 	descriptor_pool = descriptor_set_layout_bindings.createPool(m_device, 1);
@@ -666,10 +674,19 @@ void Opal::updateDescriptorSet() {
 		mat_color_info.push_back({ obj.mat_color_buffer.buffer, 0, VK_WHOLE_SIZE });
 		mat_index_info.push_back({ obj.mat_index_buffer.buffer, 0, VK_WHOLE_SIZE });
 	}
+
+	// sphere materials
+	mat_color_info.emplace_back(spheres_mat_color_buffer.buffer, 0, VK_WHOLE_SIZE);
+	mat_index_info.emplace_back(spheres_mat_index_buffer.buffer, 0, VK_WHOLE_SIZE);
+
 	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 1, mat_color_info.data()));
 	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 4, mat_index_info.data()));
 	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 5, vert_info.data()));
 	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 6, index_info.data()));
+
+	// write sphere buffer
+	vk::DescriptorBufferInfo spheres_info{ spheres_buffer.buffer, 0, VK_WHOLE_SIZE };
+	writes.emplace_back(descriptor_set_layout_bindings.makeWrite(descriptor_set, 7, &spheres_info));
 
 	// textures
 	std::vector<vk::DescriptorImageInfo> image_info;
@@ -726,7 +743,7 @@ nvvk::RaytracingBuilderKHR::Blas Opal::objectToVkGeometryKHR(const ObjModel &mod
 
 	vk::AccelerationStructureGeometryKHR as_geometry;
 	as_geometry.setGeometryType(as_info.geometryType);
-	as_geometry.setFlags(vk::GeometryFlagBitsKHR::eNoDuplicateAnyHitInvocation);
+	as_geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 	as_geometry.geometry.setTriangles(triangles);
 
 	vk::AccelerationStructureBuildOffsetInfoKHR offset;
@@ -743,13 +760,110 @@ nvvk::RaytracingBuilderKHR::Blas Opal::objectToVkGeometryKHR(const ObjModel &mod
 	return blas;
 }
 
+void Opal::createSpheres() {
+	std::random_device rd{};
+	std::mt19937 gen{ rd() };
+	std::normal_distribution<float> xzd{ 0.f, 5.f };
+	std::normal_distribution<float> yd{ 3.f, 1.f };
+	std::uniform_real_distribution<float> radd{ .05f, .2f };
+
+	Sphere s;
+	for (uint32_t i = 0; i < 2; i++) {
+		s.center = nvmath::vec3f(xzd(gen), yd(gen), xzd(gen));
+		s.radius = radd(gen);
+		spheres.emplace_back(s);
+	}
+
+	std::vector<Aabb> aabbs;
+	for (const auto &s : spheres) {
+		Aabb aabb;
+		aabb.minimum = s.center - nvmath::vec3f(s.radius);
+		aabb.maximum = s.center + nvmath::vec3f(s.radius);
+		aabbs.emplace_back(aabb);
+	}
+
+	// create two materials
+	MaterialObj mat;
+	mat.diffuse = vec3f(0, 1, 1);
+	std::vector<MaterialObj> materials;
+	std::vector<int> mat_idx;
+	materials.emplace_back(mat);
+	mat.diffuse = vec3f(1, 1, 0);
+	materials.emplace_back(mat);
+
+	// assign sphere materials
+	for (size_t i = 0; i < spheres.size(); i++) {
+		// mat_idx.push_back(i % 2);
+		mat_idx.push_back(0);
+	}
+
+	// create the buffers
+
+	using vkBU = vk::BufferUsageFlagBits;
+	nvvk::CommandPool gen_cmd_buf(m_device, m_graphicsQueueIndex);
+	auto cmd_buf = gen_cmd_buf.createCommandBuffer();
+
+	spheres_buffer = alloc.createBuffer(cmd_buf, spheres, vkBU::eStorageBuffer);
+	spheres_aabb_buffer = alloc.createBuffer(cmd_buf, aabbs, vkBU::eShaderDeviceAddress);
+	spheres_mat_index_buffer = alloc.createBuffer(cmd_buf, mat_idx, vkBU::eStorageBuffer);
+	spheres_mat_color_buffer = alloc.createBuffer(cmd_buf, materials, vkBU::eStorageBuffer);
+	gen_cmd_buf.submitAndWait(cmd_buf);
+
+	debug.setObjectName(spheres_buffer.buffer, "spheres");
+	debug.setObjectName(spheres_aabb_buffer.buffer, "spheresAabb");
+	debug.setObjectName(spheres_mat_color_buffer.buffer, "spheresMat");
+	debug.setObjectName(spheres_mat_index_buffer.buffer, "spheresMatIdx");
+}
+
+nvvk::RaytracingBuilderKHR::Blas Opal::sphereToVkGeometryKHR() {
+
+	vk::AccelerationStructureCreateGeometryTypeInfoKHR as_info;
+	as_info.setGeometryType(vk::GeometryTypeKHR::eAabbs);
+	as_info.setMaxPrimitiveCount((uint32_t)spheres.size());
+	as_info.setIndexType(vk::IndexType::eNoneKHR);
+	as_info.setVertexFormat(vk::Format::eUndefined);
+	as_info.setMaxVertexCount(0);
+	as_info.setAllowsTransforms(VK_FALSE);
+
+	auto data_address = m_device.getBufferAddress({ spheres_aabb_buffer.buffer });
+	vk::AccelerationStructureGeometryAabbsDataKHR aabbs;
+	aabbs.setData(data_address);
+	aabbs.setStride(sizeof(Aabb));
+
+	vk::AccelerationStructureGeometryKHR as_geom;
+	as_geom.setGeometryType(as_info.geometryType);
+	as_geom.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+	as_geom.geometry.setAabbs(aabbs);
+
+	vk::AccelerationStructureBuildOffsetInfoKHR offset;
+	offset.setFirstVertex(0);
+	offset.setPrimitiveCount(as_info.maxPrimitiveCount);
+	offset.setPrimitiveOffset(0);
+	offset.setTransformOffset(0);
+
+	nvvk::RaytracingBuilderKHR::Blas blas;
+	blas.asGeometry.emplace_back(as_geom);
+	blas.asCreateGeometryInfo.emplace_back(as_info);
+	blas.asBuildOffsetInfo.emplace_back(offset);
+
+	return blas;
+}
+
 void Opal::createBottomLevelAS() {
 
 	std::vector<nvvk::RaytracingBuilderKHR::Blas> all_blas;
 	all_blas.reserve(object_models.size());
 
+	// add normal object models
 	for (const auto &object : object_models) {
-		all_blas.emplace_back(objectToVkGeometryKHR(object));
+		auto blas = objectToVkGeometryKHR(object);
+		all_blas.emplace_back(blas);
+	}
+
+	// add sphere objects
+	{
+		auto blas = sphereToVkGeometryKHR();
+		all_blas.emplace_back(blas);
 	}
 
 	rt_builder.buildBlas(all_blas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
@@ -762,15 +876,26 @@ void Opal::createTopLevelAS() {
 
 	for (int i = 0; i < static_cast<int>(object_instances.size()); i++) {
 		nvvk::RaytracingBuilderKHR::Instance ray_info;
-		ray_info.instanceId = i;
 		// object transform
 		ray_info.transform = object_instances[i].transform;
+		ray_info.instanceId = i;
 		// gl_InstanceID
 		ray_info.blasId = object_instances[i].object_index;
 		// all objects in the same hit group
 		ray_info.hitGroupId = 0;
 		ray_info.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
 
+		tlas.emplace_back(ray_info);
+	}
+
+	{
+		nvvk::RaytracingBuilderKHR::Instance ray_info;
+		ray_info.transform = object_instances[0].transform;
+		ray_info.instanceId = static_cast<uint32_t>(tlas.size());
+		ray_info.blasId = static_cast<uint32_t>(object_models.size());
+		// use hit group 1 for primitives
+		ray_info.hitGroupId = 1;
+		ray_info.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
 		tlas.emplace_back(ray_info);
 	}
 
@@ -820,22 +945,12 @@ void Opal::updateRtDescriptorSet() {
 
 void Opal::createRtPipeline() {
 
-	auto raygen_shader = nvvk::createShaderModule(
-			m_device, nvh::loadFile("shaders/raytrace.rgen.spv", true, default_search_paths, true));
-	auto raymiss_shader = nvvk::createShaderModule(
-			m_device, nvh::loadFile("shaders/raytrace.rmiss.spv", true, default_search_paths, true));
-	auto shadow_miss_shader = nvvk::createShaderModule(
-			m_device, nvh::loadFile("shaders/raytraceShadow.rmiss.spv", true, default_search_paths, true));
-	auto ray_closest_hit_shader = nvvk::createShaderModule(
-			m_device, nvh::loadFile("shaders/raytrace.rchit.spv", true, default_search_paths, true));
-	auto ray_any_hit_shader_0 = nvvk::createShaderModule(
-			m_device, nvh::loadFile("shaders/raytrace_0.rahit.spv", true, default_search_paths, true));
-	auto ray_any_hit_shader_1 = nvvk::createShaderModule(
-			m_device, nvh::loadFile("shaders/raytrace_1.rahit.spv", true, default_search_paths, true));
-
 	std::vector<vk::PipelineShaderStageCreateInfo> stages;
 
 	// raygen stage
+
+	auto raygen_shader = nvvk::createShaderModule(
+			m_device, nvh::loadFile("shaders/raytrace.rgen.spv", true, default_search_paths, true));
 
 	vk::RayTracingShaderGroupCreateInfoKHR raygen_group_info{ vk::RayTracingShaderGroupTypeKHR::eGeneral,
 		VK_SHADER_UNUSED_KHR,
@@ -848,6 +963,9 @@ void Opal::createRtPipeline() {
 
 	// miss stage
 
+	auto raymiss_shader = nvvk::createShaderModule(
+			m_device, nvh::loadFile("shaders/raytrace.rmiss.spv", true, default_search_paths, true));
+
 	vk::RayTracingShaderGroupCreateInfoKHR raymiss_group_info{ vk::RayTracingShaderGroupTypeKHR::eGeneral,
 		VK_SHADER_UNUSED_KHR,
 		VK_SHADER_UNUSED_KHR,
@@ -859,11 +977,17 @@ void Opal::createRtPipeline() {
 
 	// shadow miss stage
 
+	auto shadow_miss_shader = nvvk::createShaderModule(
+			m_device, nvh::loadFile("shaders/raytraceShadow.rmiss.spv", true, default_search_paths, true));
+
 	stages.push_back({ {}, vk::ShaderStageFlagBits::eMissKHR, shadow_miss_shader, "main" });
 	raymiss_group_info.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
 	rt_shader_groups.push_back(raymiss_group_info);
 
-	// hit group
+	// hit group 0 - closest hit
+
+	auto ray_closest_hit_shader = nvvk::createShaderModule(
+			m_device, nvh::loadFile("shaders/raytrace.rchit.spv", true, default_search_paths, true));
 
 	vk::RayTracingShaderGroupCreateInfoKHR hit_group_info{ vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
 		VK_SHADER_UNUSED_KHR,
@@ -872,17 +996,46 @@ void Opal::createRtPipeline() {
 		VK_SHADER_UNUSED_KHR };
 	stages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, ray_closest_hit_shader, "main" });
 	hit_group_info.setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
-	stages.push_back({ {}, vk::ShaderStageFlagBits::eAnyHitKHR, ray_any_hit_shader_0, "main" });
-	hit_group_info.setAnyHitShader(static_cast<uint32_t>(stages.size() - 1));
+
+	// hit group 0 - any hit
+
+	// auto ray_any_hit_shader_0 = nvvk::createShaderModule(
+	// 		m_device, nvh::loadFile("shaders/raytrace_0.rahit.spv", true, default_search_paths, true));
+
+	// stages.push_back({ {}, vk::ShaderStageFlagBits::eAnyHitKHR, ray_any_hit_shader_0, "main" });
+	// hit_group_info.setAnyHitShader(static_cast<uint32_t>(stages.size() - 1));
+
 	rt_shader_groups.push_back(hit_group_info);
+
+	// hit group 1 - closest hit + procedural intersection
+
+	auto ray_closest_hit_shader_2 = nvvk::createShaderModule(
+			m_device, nvh::loadFile("shaders/raytrace2.rchit.spv", true, default_search_paths, true));
+
+	auto ray_intersection_shader = nvvk::createShaderModule(
+			m_device, nvh::loadFile("shaders/raytrace.rint.spv", true, default_search_paths, true));
+
+	vk::RayTracingShaderGroupCreateInfoKHR hit_group_1_info{ vk::RayTracingShaderGroupTypeKHR::eProceduralHitGroup,
+		VK_SHADER_UNUSED_KHR,
+		VK_SHADER_UNUSED_KHR,
+		VK_SHADER_UNUSED_KHR,
+		VK_SHADER_UNUSED_KHR };
+	stages.push_back({ {}, vk::ShaderStageFlagBits::eClosestHitKHR, ray_closest_hit_shader_2, "main" });
+	hit_group_1_info.setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
+	stages.push_back({ {}, vk::ShaderStageFlagBits::eIntersectionKHR, ray_intersection_shader, "main" });
+	hit_group_1_info.setIntersectionShader(static_cast<uint32_t>(stages.size() - 1));
+	rt_shader_groups.push_back(hit_group_1_info);
 
 	// payload 1
 
-	// not used by shadow (skipped)
-	hit_group_info.setClosestHitShader(VK_SHADER_UNUSED_KHR);
-	stages.push_back({ {}, vk::ShaderStageFlagBits::eAnyHitKHR, ray_any_hit_shader_1, "main" });
-	hit_group_info.setAnyHitShader(static_cast<uint32_t>(stages.size() - 1));
-	rt_shader_groups.push_back(hit_group_info);
+	// auto ray_any_hit_shader_1 = nvvk::createShaderModule(
+	// 		m_device, nvh::loadFile("shaders/raytrace_1.rahit.spv", true, default_search_paths, true));
+
+	// // not used by shadow (skipped)
+	// hit_group_info.setClosestHitShader(VK_SHADER_UNUSED_KHR);
+	// stages.push_back({ {}, vk::ShaderStageFlagBits::eAnyHitKHR, ray_any_hit_shader_1, "main" });
+	// hit_group_info.setAnyHitShader(static_cast<uint32_t>(stages.size() - 1));
+	// rt_shader_groups.push_back(hit_group_info);
 
 	// create the pipeline
 
@@ -923,8 +1076,10 @@ void Opal::createRtPipeline() {
 	m_device.destroy(raymiss_shader);
 	m_device.destroy(shadow_miss_shader);
 	m_device.destroy(ray_closest_hit_shader);
-	m_device.destroy(ray_any_hit_shader_0);
-	m_device.destroy(ray_any_hit_shader_1);
+	m_device.destroy(ray_closest_hit_shader_2);
+	m_device.destroy(ray_intersection_shader);
+	// m_device.destroy(ray_any_hit_shader_0);
+	// m_device.destroy(ray_any_hit_shader_1);
 }
 
 void Opal::createRtShaderBindingTable() {
