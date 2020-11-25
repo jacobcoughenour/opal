@@ -894,9 +894,16 @@ void Opal::createVolumes() {
 
 	std::vector<Aabb> aabbs;
 
-	for (uint32_t i = 0; i < 5; i++) {
-		v.position = nvmath::vec3f(xzd(gen), yd(gen), xzd(gen));
-		v.size = nvmath::vec3f(8);
+	int count = 3;
+	float size = 4.f;
+	float spacing = 1.f;
+
+	for (uint32_t i = 0; i < count * count; i++) {
+		// v.position = nvmath::vec3f(xzd(gen), yd(gen), xzd(gen));
+		v.position = nvmath::vec3f(i % count, 0.f, i / count) * (size + spacing);
+		v.position -= nvmath::vec3f(1.f, 0.f, 1.f) * (count / 2 * (size + spacing) + (size * 0.5f));
+
+		v.size = nvmath::vec3f(size);
 		v.density_texture_id = 0;
 		volumes.emplace_back(v);
 
@@ -996,8 +1003,7 @@ nvvk::RaytracingBuilderKHR::Blas Opal::volumeToVkGeometryKHR() {
 
 	vk::AccelerationStructureGeometryKHR as_geom;
 	as_geom.setGeometryType(as_info.geometryType);
-	// as_geom.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
-	// as_geom.setFlags(vk::GeometryFlagBitsKHR::eNoDuplicateAnyHitInvocation);
+	as_geom.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 	as_geom.geometry.setAabbs(aabbs);
 
 	vk::AccelerationStructureBuildOffsetInfoKHR offset;
