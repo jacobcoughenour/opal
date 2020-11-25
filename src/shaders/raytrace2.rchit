@@ -20,7 +20,8 @@ layout(binding = 4, set = 1)  buffer MatIndexColorBuffer { int i[]; } matIndex[]
 layout(binding = 5, set = 1, scalar) buffer Vertices { Vertex v[]; } vertices[];
 layout(binding = 6, set = 1) buffer Indices { uint i[]; } indices[];
 
-layout(binding = 7, set = 1, scalar) buffer allSpheres_ {Sphere i[];} allSpheres;
+// layout(binding = 7, set = 1, scalar) buffer allSpheres_ {Sphere i[];} allSpheres;
+layout(binding = 7, set = 1, scalar) buffer allVolumes_ {Volume i[];} allVolumes;
 
 // clang-format on
 
@@ -37,16 +38,17 @@ void main() {
 	vec3 worldPos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
 
 	// Object of this instance
-	Sphere instance = allSpheres.i[gl_PrimitiveID];
+	Volume instance = allVolumes.i[gl_PrimitiveID];
 
 	// Computing the normal at hit position
-	vec3 normal = normalize(worldPos - instance.center);
+	vec3 normal = normalize(worldPos - instance.position + instance.size * 0.5);
 
 	if (gl_HitKindEXT == KIND_CUBE) {
 		vec3 absN = abs(normal);
 		float maxC = max(max(absN.x, absN.y), absN.z);
-		normal = (maxC == absN.x) ? vec3(sign(normal.x), 0, 0)
-								  : (maxC == absN.y) ? vec3(0, sign(normal.y), 0) : vec3(0, 0, sign(normal.z));
+		normal = (maxC == absN.x)	? vec3(sign(normal.x), 0, 0)
+				 : (maxC == absN.y) ? vec3(0, sign(normal.y), 0)
+									: vec3(0, 0, sign(normal.z));
 	}
 
 	// direction towards the light
@@ -66,7 +68,9 @@ void main() {
 	}
 
 	// Material of the object
-	int matIdx = matIndex[nonuniformEXT(gl_InstanceID)].i[gl_PrimitiveID];
+	// int matIdx = matIndex[nonuniformEXT(gl_InstanceID)].i[gl_PrimitiveID];
+	int matIdx = 0;
+	// WaveFrontMaterial mat = materials[nonuniformEXT(gl_InstanceID)].m[matIdx];
 	WaveFrontMaterial mat = materials[nonuniformEXT(gl_InstanceID)].m[matIdx];
 
 	// Diffuse

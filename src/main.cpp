@@ -52,8 +52,10 @@ int main(int argc, char **argv) {
 
 	// INSTANCE LAYERS
 	ctx_info.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
+	ctx_info.addInstanceLayer("VK_LAYER_KHRONOS_validation");
 
 	// INSTANCE EXTENSIONS
+	ctx_info.addInstanceExtension(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
 	ctx_info.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
 	ctx_info.addInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 #ifdef WIN32

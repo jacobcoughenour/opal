@@ -32,6 +32,12 @@ public:
 		nvmath::vec3f maximum;
 	};
 
+	struct VolumeInstance {
+		nvmath::vec3f position;
+		nvmath::vec3f size;
+		uint32_t density_texture_id{ 0 };
+	};
+
 	struct ObjInstance {
 		uint32_t object_index{ 0 };
 		uint32_t texture_offset{ 0 };
@@ -87,6 +93,12 @@ private:
 	nvvk::Buffer spheres_aabb_buffer;
 	nvvk::Buffer spheres_mat_color_buffer;
 	nvvk::Buffer spheres_mat_index_buffer;
+
+	std::vector<VolumeInstance> volumes;
+	nvvk::Buffer volumes_buffer;
+	nvvk::Buffer volumes_aabb_buffer;
+	// nvvk::Buffer volumes_density_buffer;
+	std::vector<nvvk::Texture> volume_density_textures;
 
 	nvvk::Buffer camera_mat;
 	nvvk::Buffer scene_descriptor;
@@ -186,6 +198,10 @@ private:
 
 	void createSpheres();
 	nvvk::RaytracingBuilderKHR::Blas sphereToVkGeometryKHR();
+
+	void createVolumes();
+	nvvk::RaytracingBuilderKHR::Blas volumeToVkGeometryKHR();
+	void createVolumeTextureImage(const vk::CommandBuffer &cmd_buf);
 
 	/**
 	 * create bottom level acceleration structure

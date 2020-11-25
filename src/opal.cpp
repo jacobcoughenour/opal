@@ -5,6 +5,7 @@
 #include <nvh/fileoperations.hpp>
 
 #include <imgui/imgui_impl_glfw.h>
+#include <nvvk/buffers_vk.hpp>
 #include <nvvk/commands_vk.hpp>
 #include <nvvk/descriptorsets_vk.hpp>
 #include <nvvk/pipeline_vk.hpp>
@@ -44,7 +45,8 @@ void Opal::setup(const vk::Instance &instance,
 	// 		nvmath::scale_mat4(nvmath::vec3f(1.5f)) * nvmath::translation_mat4(nvmath::vec3f(0.0f, 1.0f, 0.0f)));
 	loadModel(nvh::findFile("media/scenes/plane.obj", default_search_paths));
 
-	createSpheres();
+	// createSpheres();
+	createVolumes();
 
 	createOffscreenRender();
 	createDescriptorSetLayout();
@@ -87,10 +89,17 @@ void Opal::destroyResources() {
 		alloc.destroy(tex);
 	}
 
-	alloc.destroy(spheres_buffer);
-	alloc.destroy(spheres_aabb_buffer);
-	alloc.destroy(spheres_mat_color_buffer);
-	alloc.destroy(spheres_mat_index_buffer);
+	// alloc.destroy(spheres_buffer);
+	// alloc.destroy(spheres_aabb_buffer);
+	// alloc.destroy(spheres_mat_color_buffer);
+	// alloc.destroy(spheres_mat_index_buffer);
+
+	alloc.destroy(volumes_buffer);
+	alloc.destroy(volumes_aabb_buffer);
+
+	for (auto &tex : volume_density_textures) {
+		alloc.destroy(tex);
+	}
 
 	// destroy post pipeline
 
@@ -585,10 +594,10 @@ void Opal::createGraphicsPipeline() {
 			nvh::loadFile("shaders/frag_shader.frag.spv", true, default_search_paths, true), vkSS::eFragment);
 	pipeline_generator.addBindingDescription({ 0, sizeof(VertexObj) });
 	pipeline_generator.addAttributeDescriptions(std::vector<vk::VertexInputAttributeDescription>{
-			{ 0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, position) },
-			{ 1, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, normal) },
-			{ 2, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, color) },
-			{ 3, 0, vk::Format::eR32G32Sfloat, offsetof(VertexObj, tex_coord) },
+			{ 0, 0, vk::Format::eR32G32B32Sfloat, static_cast<uint32_t>(offsetof(VertexObj, position)) },
+			{ 1, 0, vk::Format::eR32G32B32Sfloat, static_cast<uint32_t>(offsetof(VertexObj, normal)) },
+			{ 2, 0, vk::Format::eR32G32B32Sfloat, static_cast<uint32_t>(offsetof(VertexObj, color)) },
+			{ 3, 0, vk::Format::eR32G32Sfloat, static_cast<uint32_t>(offsetof(VertexObj, tex_coord)) },
 	});
 
 	graphics_pipeline = pipeline_generator.createPipeline();
@@ -600,30 +609,44 @@ void Opal::createDescriptorSetLayout() {
 	using vkDS = vk::DescriptorSetLayoutBinding;
 	using vkDT = vk::DescriptorType;
 	using vkSS = vk::ShaderStageFlagBits;
-	uint32_t nb_txt = static_cast<uint32_t>(textures.size());
-	uint32_t nb_obj = static_cast<uint32_t>(object_models.size());
+	uint32_t nb_texture_count = static_cast<uint32_t>(textures.size());
+	uint32_t nb_object_model_count = static_cast<uint32_t>(object_models.size());
+
+	uint32_t nb_volume_count = static_cast<uint32_t>(volumes.size());
+	uint32_t nb_volume_density_textures_count = static_cast<uint32_t>(volume_density_textures.size());
 
 	// camera matrices (binding = 0)
 	descriptor_set_layout_bindings.addBinding(vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
 	// materials (binding = 1)
-	descriptor_set_layout_bindings.addBinding(
-			vkDS(1, vkDT::eStorageBuffer, nb_obj + 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
+	descriptor_set_layout_bindings.addBinding(vkDS(
+			1, vkDT::eStorageBuffer, nb_object_model_count, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
 	// scene description (binding = 2)
 	descriptor_set_layout_bindings.addBinding(
 			vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
 	// textures (binding = 3)
 	descriptor_set_layout_bindings.addBinding(
-			vkDS(3, vkDT::eCombinedImageSampler, nb_txt, vkSS::eFragment | vkSS::eClosestHitKHR));
+			vkDS(3, vkDT::eCombinedImageSampler, nb_texture_count, vkSS::eFragment | vkSS::eClosestHitKHR));
 	// materials (binding = 4)
 	descriptor_set_layout_bindings.addBinding(
-			vkDS(4, vkDT::eStorageBuffer, nb_obj + 1, vkSS::eFragment | vkSS::eClosestHitKHR));
+			vkDS(4, vkDT::eStorageBuffer, nb_object_model_count, vkSS::eFragment | vkSS::eClosestHitKHR));
 	// storing vertices (binding = 5)
-	descriptor_set_layout_bindings.addBinding(vkDS(5, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR));
+	descriptor_set_layout_bindings.addBinding(
+			vkDS(5, vkDT::eStorageBuffer, nb_object_model_count, vkSS::eClosestHitKHR));
 	// storing indices (binding = 6)
-	descriptor_set_layout_bindings.addBinding(vkDS(6, vkDT::eStorageBuffer, nb_obj, vkSS::eClosestHitKHR));
-	// storing spheres (binding = 7)
+	descriptor_set_layout_bindings.addBinding(
+			vkDS(6, vkDT::eStorageBuffer, nb_object_model_count, vkSS::eClosestHitKHR));
+
+	// // storing spheres (binding = 7)
+	// descriptor_set_layout_bindings.addBinding(
+	// 		vkDS(7, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eIntersectionKHR));
+
+	// storing volumes (binding = 7)
 	descriptor_set_layout_bindings.addBinding(
 			vkDS(7, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eIntersectionKHR));
+
+	// storing volume density textures (binding = 8)
+	descriptor_set_layout_bindings.addBinding(
+			vkDS(8, vkDT::eCombinedImageSampler, nb_volume_density_textures_count, vkSS::eIntersectionKHR));
 
 	descriptor_set_layout = descriptor_set_layout_bindings.createLayout(m_device);
 	descriptor_pool = descriptor_set_layout_bindings.createPool(m_device, 1);
@@ -676,17 +699,27 @@ void Opal::updateDescriptorSet() {
 	}
 
 	// sphere materials
-	mat_color_info.emplace_back(spheres_mat_color_buffer.buffer, 0, VK_WHOLE_SIZE);
-	mat_index_info.emplace_back(spheres_mat_index_buffer.buffer, 0, VK_WHOLE_SIZE);
+	// mat_color_info.emplace_back(spheres_mat_color_buffer.buffer, 0, VK_WHOLE_SIZE);
+	// mat_index_info.emplace_back(spheres_mat_index_buffer.buffer, 0, VK_WHOLE_SIZE);
 
 	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 1, mat_color_info.data()));
 	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 4, mat_index_info.data()));
 	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 5, vert_info.data()));
 	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 6, index_info.data()));
 
-	// write sphere buffer
-	vk::DescriptorBufferInfo spheres_info{ spheres_buffer.buffer, 0, VK_WHOLE_SIZE };
-	writes.emplace_back(descriptor_set_layout_bindings.makeWrite(descriptor_set, 7, &spheres_info));
+	// // write sphere buffer
+	// vk::DescriptorBufferInfo spheres_info{ spheres_buffer.buffer, 0, VK_WHOLE_SIZE };
+	// writes.emplace_back(descriptor_set_layout_bindings.makeWrite(descriptor_set, 7, &spheres_info));
+
+	// write volumes buffer
+	vk::DescriptorBufferInfo volumes_info{ volumes_buffer.buffer, 0, VK_WHOLE_SIZE };
+	writes.emplace_back(descriptor_set_layout_bindings.makeWrite(descriptor_set, 7, &volumes_info));
+
+	// volume density textures
+	std::vector<vk::DescriptorImageInfo> density_image_info;
+	for (auto &texture : volume_density_textures)
+		density_image_info.push_back(texture.descriptor);
+	writes.emplace_back(descriptor_set_layout_bindings.makeWriteArray(descriptor_set, 8, density_image_info.data()));
 
 	// textures
 	std::vector<vk::DescriptorImageInfo> image_info;
@@ -849,6 +882,138 @@ nvvk::RaytracingBuilderKHR::Blas Opal::sphereToVkGeometryKHR() {
 	return blas;
 }
 
+void Opal::createVolumes() {
+	std::random_device rd{};
+	std::mt19937 gen{ rd() };
+	std::normal_distribution<float> xzd{ 0.f, 5.f };
+	std::normal_distribution<float> yd{ 3.f, 1.f };
+	std::uniform_real_distribution<float> radd{ .05f, .2f };
+
+	VolumeInstance v;
+	Aabb aabb;
+
+	std::vector<Aabb> aabbs;
+
+	for (uint32_t i = 0; i < 5; i++) {
+		v.position = nvmath::vec3f(xzd(gen), yd(gen), xzd(gen));
+		v.size = nvmath::vec3f(8);
+		v.density_texture_id = 0;
+		volumes.emplace_back(v);
+
+		aabb.minimum = v.position;
+		aabb.maximum = v.position + v.size;
+		aabbs.emplace_back(aabb);
+	}
+
+	using vkBU = vk::BufferUsageFlagBits;
+	nvvk::CommandPool gen_cmd_buf(m_device, m_graphicsQueueIndex);
+	auto cmd_buf = gen_cmd_buf.createCommandBuffer();
+
+	volumes_buffer = alloc.createBuffer(cmd_buf, volumes, vkBU::eStorageBuffer);
+	volumes_aabb_buffer = alloc.createBuffer(cmd_buf, aabbs, vkBU::eShaderDeviceAddress);
+
+	createVolumeTextureImage(cmd_buf);
+
+	gen_cmd_buf.submitAndWait(cmd_buf);
+
+	debug.setObjectName(volumes_buffer.buffer, "volumes");
+	debug.setObjectName(volumes_aabb_buffer.buffer, "volumesAabb");
+}
+
+void Opal::createVolumeTextureImage(const vk::CommandBuffer &cmd_buf) {
+	using vkIU = vk::ImageUsageFlagBits;
+
+	vk::SamplerCreateInfo sampler_info{
+		{}, vk::Filter::eNearest, vk::Filter::eNearest, vk::SamplerMipmapMode::eLinear
+	};
+	sampler_info.setMaxLod(FLT_MAX);
+	auto format = vk::Format::eR8G8B8A8Srgb;
+
+	// nvvk::Texture texture;
+
+	// std::array<uint8_t, 4> color{ 255u, 0u, 255u, 255u };
+	// vk::DeviceSize buffer_size = sizeof(color);
+	// auto img_size = vk::Extent3D(1, 1, 1);
+	// auto image_info = nvvk::makeImage3DCreateInfo(img_size, format);
+
+	// auto image = alloc.createImage(cmd_buf, buffer_size, color.data(), image_info);
+	// auto view_info = nvvk::makeImageViewCreateInfo(image.image, image_info);
+	// texture = alloc.createTexture(image, view_info, sampler_info);
+
+	// nvvk::cmdBarrierImageLayout(
+	// 		cmd_buf, texture.image, vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal);
+	// volume_density_textures.push_back(texture);
+
+	int tex_size = 8, tex_channels = 4;
+
+	std::vector<stbi_uc> colors;
+
+	for (int x = 0; x < tex_size; x++) {
+		for (int y = 0; y < tex_size; y++) {
+			for (int z = 0; z < tex_size; z++) {
+				colors.emplace_back(0u);
+				colors.emplace_back(0u);
+				colors.emplace_back(0u);
+				// colors.emplace_back(0u);
+
+				if ((x + y + z) % 2 == 0)
+					colors.emplace_back(128u);
+				else
+					colors.emplace_back(0u);
+			}
+		}
+	}
+	stbi_uc *pixels = reinterpret_cast<stbi_uc *>(colors.data());
+
+	vk::DeviceSize buffer_size = static_cast<uint64_t>(tex_size) * tex_size * tex_size * sizeof(uint8_t) * 4;
+	auto img_size = vk::Extent3D(tex_size, tex_size, tex_size);
+	auto image_info = nvvk::makeImage3DCreateInfo(img_size, format, vkIU::eSampled, true);
+
+	{
+		nvvk::ImageDedicated image = alloc.createImage(cmd_buf, buffer_size, pixels, image_info);
+		// nvvk::cmdGenerateMipmaps(cmd_buf, image.image, format, img_size, image_info.mipLevels);
+		auto view_info = nvvk::makeImageViewCreateInfo(image.image, image_info);
+		auto tex = alloc.createTexture(image, view_info, sampler_info);
+
+		volume_density_textures.push_back(tex);
+	}
+}
+
+nvvk::RaytracingBuilderKHR::Blas Opal::volumeToVkGeometryKHR() {
+
+	vk::AccelerationStructureCreateGeometryTypeInfoKHR as_info;
+	as_info.setGeometryType(vk::GeometryTypeKHR::eAabbs);
+	as_info.setMaxPrimitiveCount((uint32_t)volumes.size());
+	as_info.setIndexType(vk::IndexType::eNoneKHR);
+	as_info.setVertexFormat(vk::Format::eUndefined);
+	as_info.setMaxVertexCount(0);
+	as_info.setAllowsTransforms(VK_FALSE);
+
+	auto data_address = m_device.getBufferAddress({ volumes_aabb_buffer.buffer });
+	vk::AccelerationStructureGeometryAabbsDataKHR aabbs;
+	aabbs.setData(data_address);
+	aabbs.setStride(sizeof(Aabb));
+
+	vk::AccelerationStructureGeometryKHR as_geom;
+	as_geom.setGeometryType(as_info.geometryType);
+	// as_geom.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+	// as_geom.setFlags(vk::GeometryFlagBitsKHR::eNoDuplicateAnyHitInvocation);
+	as_geom.geometry.setAabbs(aabbs);
+
+	vk::AccelerationStructureBuildOffsetInfoKHR offset;
+	offset.setFirstVertex(0);
+	offset.setPrimitiveCount(as_info.maxPrimitiveCount);
+	offset.setPrimitiveOffset(0);
+	offset.setTransformOffset(0);
+
+	nvvk::RaytracingBuilderKHR::Blas blas;
+	blas.asGeometry.emplace_back(as_geom);
+	blas.asCreateGeometryInfo.emplace_back(as_info);
+	blas.asBuildOffsetInfo.emplace_back(offset);
+
+	return blas;
+}
+
 void Opal::createBottomLevelAS() {
 
 	std::vector<nvvk::RaytracingBuilderKHR::Blas> all_blas;
@@ -860,9 +1025,15 @@ void Opal::createBottomLevelAS() {
 		all_blas.emplace_back(blas);
 	}
 
-	// add sphere objects
+	// // add sphere objects
+	// {
+	// 	auto blas = sphereToVkGeometryKHR();
+	// 	all_blas.emplace_back(blas);
+	// }
+
+	// add volume objects
 	{
-		auto blas = sphereToVkGeometryKHR();
+		auto blas = volumeToVkGeometryKHR();
 		all_blas.emplace_back(blas);
 	}
 

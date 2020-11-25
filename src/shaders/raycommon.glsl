@@ -10,7 +10,8 @@ struct shadowPayload {
 
 struct Volume {
 	vec3 position;
-	sampler3D density;
+	vec3 size;
+	int densityTextureId;
 };
 
 struct Sphere {
@@ -22,6 +23,14 @@ struct Aabb {
 	vec3 minimum;
 	vec3 maximum;
 };
+
+float min_elem(vec3 v) {
+	return min(v.x, min(v.y, v.z));
+}
+
+float max_elem(vec3 v) {
+	return max(v.x, max(v.y, v.z));
+}
 
 #define KIND_SPHERE 0
 #define KIND_CUBE 1
