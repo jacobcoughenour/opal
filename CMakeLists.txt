@@ -5,9 +5,18 @@ set(CMAKE_CXX_STANDARD 20)
 
 file(GLOB SOURCE_FILES src/*.cpp src/*.hpp src/*.inl src/*.h src/*.c)
 
+# Download automatically, you can also just copy the conan.cmake file
+if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
+message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
+    file(DOWNLOAD "https://raw.githubusercontent.com/conan-io/cmake-conan/v0.15/conan.cmake"
+                "${CMAKE_BINARY_DIR}/conan.cmake")
+endif()
 
-include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
-conan_basic_setup()
+include(${CMAKE_BINARY_DIR}/conan.cmake)
+conan_cmake_run(CONANFILE conanfile.txt BASIC_SETUP)
+
+#include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+#conan_basic_setup()
 
 # include nvidia shared sources submodule
 SET(BASE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/nvpro)

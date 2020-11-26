@@ -52,7 +52,6 @@ int main(int argc, char **argv) {
 
 	// INSTANCE LAYERS
 	ctx_info.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
-	ctx_info.addInstanceLayer("VK_LAYER_KHRONOS_validation");
 
 	// INSTANCE EXTENSIONS
 	ctx_info.addInstanceExtension(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
@@ -76,6 +75,7 @@ int main(int argc, char **argv) {
 
 	// activate ray tracing
 	vk::PhysicalDeviceRayTracingFeaturesKHR rt_features;
+	// todo https://www.khronos.org/blog/vulkan-ray-tracing-final-specification-release
 	ctx_info.addDeviceExtension(VK_KHR_RAY_TRACING_EXTENSION_NAME, false, &rt_features);
 
 	// Vulkan app instance

@@ -958,15 +958,10 @@ void Opal::createVolumeTextureImage(const vk::CommandBuffer &cmd_buf) {
 	for (int x = 0; x < tex_size; x++) {
 		for (int y = 0; y < tex_size; y++) {
 			for (int z = 0; z < tex_size; z++) {
-				colors.emplace_back(0u);
-				colors.emplace_back(0u);
-				colors.emplace_back(0u);
-				// colors.emplace_back(0u);
-
-				if ((x + y + z) % 2 == 0)
-					colors.emplace_back(128u);
-				else
-					colors.emplace_back(0u);
+				colors.emplace_back(x % 2 == 0 ? 0u : 255u);
+				colors.emplace_back(y % 2 == 0 ? 0u : 255u);
+				colors.emplace_back(z % 2 == 0 ? 0u : 255u);
+				colors.emplace_back((x + y + z) % 2 == 0 ? 0u : 255u);
 			}
 		}
 	}
@@ -983,6 +978,8 @@ void Opal::createVolumeTextureImage(const vk::CommandBuffer &cmd_buf) {
 		auto tex = alloc.createTexture(image, view_info, sampler_info);
 
 		volume_density_textures.push_back(tex);
+
+		debug.setObjectName(tex.image, "volumesTexture");
 	}
 }
 
