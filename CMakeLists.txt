@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.17)
 project(opal)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -90,8 +90,8 @@ if (${CMAKE_HOST_SYSTEM_PROCESSOR} STREQUAL "AMD64")
     set(SPIRVDIS "$ENV{VULKAN_SDK}/Bin/spirv-dis.exe")
     set(SPIRVCFG "$ENV{VULKAN_SDK}/Bin/spirv-cfg.exe")
 else ()
-    set(GLSLC "$ENV{VULKAN_SDK}/Bin32/glslc.exe")
-    set(GLSLANGVALIDATOR "$ENV{VULKAN_SDK}/Bin32/glslangValidator.exe")
+    set(GLSLC "glslc")
+    set(GLSLANGVALIDATOR "glslangValidator")
 endif ()
 
 

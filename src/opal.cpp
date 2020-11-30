@@ -393,9 +393,9 @@ void Opal::rasterize(const vk::CommandBuffer &cmd_buf) {
 void Opal::raytrace(const vk::CommandBuffer &cmd_buf) {
 
 	updateFrame();
-	if (rt_push_constants.frame >= max_frames) {
-		return;
-	}
+	// if (rt_push_constants.frame >= max_frames) {
+	// 	return;
+	// }
 
 	debug.beginLabel(cmd_buf, "Raytrace");
 
@@ -888,13 +888,12 @@ void Opal::createVolumes() {
 	std::normal_distribution<float> xzd{ 0.f, 5.f };
 	std::normal_distribution<float> yd{ 3.f, 1.f };
 	std::uniform_real_distribution<float> radd{ .05f, .2f };
-
 	VolumeInstance v;
 	Aabb aabb;
 
 	std::vector<Aabb> aabbs;
 
-	int count = 3;
+	int count = 5;
 	float size = 4.f;
 	float spacing = 1.f;
 
@@ -1046,7 +1045,7 @@ void Opal::createBottomLevelAS() {
 void Opal::createTopLevelAS() {
 
 	std::vector<nvvk::RaytracingBuilderKHR::Instance> tlas;
-	tlas.reserve(object_instances.size());
+	tlas.reserve(object_instances.size() + 1);
 
 	for (int i = 0; i < static_cast<int>(object_instances.size()); i++) {
 		nvvk::RaytracingBuilderKHR::Instance ray_info;
@@ -1243,7 +1242,7 @@ void Opal::createRtPipeline() {
 
 	// set the pipeline
 	rt_graphics_pipeline =
-			static_cast<const vk::Pipeline &>(m_device.createRayTracingPipelineKHR({}, ray_pipeline_info));
+			static_cast<const vk::Pipeline &>(m_device.createRayTracingPipelineKHR({}, ray_pipeline_info).value);
 
 	// cleanup
 	m_device.destroy(raygen_shader);
