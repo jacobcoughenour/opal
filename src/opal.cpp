@@ -1,6 +1,7 @@
 ﻿#include "opal.h"
 #include <vulkan/vulkan.hpp>
 
+#include <nvh/alignment.hpp>
 #include <nvh/cameramanipulator.hpp>
 #include <nvh/fileoperations.hpp>
 
@@ -32,7 +33,7 @@ void Opal::setup(const vk::Instance &instance,
 	alloc.init(device, physicalDevice);
 	debug.setup(device);
 
-	createSurface(surface, width, height);
+	createSwapchain(surface, width, height);
 
 	createDepthBuffer();
 	createRenderPass();
@@ -252,13 +253,12 @@ void Opal::updateFrame() {
 void Opal::render() {
 
 	ImGui_ImplGlfw_NewFrame();
-	ImGui::NewFrame();
-
-	// update camera buffer
-	updateUniformBuffer();
 
 	// render UI
-	{
+	if (showGui()) {
+		ImGui::NewFrame();
+		ImGuiH::Panel::Begin();
+
 		bool changed = false;
 
 		changed |= ImGui::ColorEdit3("Clear color", reinterpret_cast<float *>(&clear_color));
@@ -285,11 +285,12 @@ void Opal::render() {
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
 				1000.0f / ImGui::GetIO().Framerate,
 				ImGui::GetIO().Framerate);
-		ImGui::Render();
 
 		if (changed) {
 			resetFrame();
 		}
+
+		ImGuiH::Panel::End();
 	}
 
 	// queue up next frame
@@ -303,6 +304,9 @@ void Opal::render() {
 
 	// start command buffer
 	cmd_buf.begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
+
+	// update camera buffer
+	updateUniformBuffer();
 
 	// render scene
 
@@ -342,6 +346,8 @@ void Opal::render() {
 
 		drawPost(cmd_buf);
 
+		// render UI last
+		ImGui::Render();
 		ImGui::RenderDrawDataVK(cmd_buf, ImGui::GetDrawData());
 
 		cmd_buf.endRenderPass();
@@ -416,19 +422,29 @@ void Opal::raytrace(const vk::CommandBuffer &cmd_buf) {
 			0,
 			rt_push_constants);
 
-	vk::DeviceSize prog_size = rt_properties.shaderGroupBaseAlignment;
-	vk::DeviceSize raygen_offset = 0u * prog_size;
-	vk::DeviceSize miss_offset = 1u * prog_size;
-	vk::DeviceSize hit_group_offset = 3u * prog_size;
+	uint32_t group_size = nvh::align_up(
+			rt_pipeline_properties.shaderGroupHandleSize, rt_pipeline_properties.shaderGroupBaseAlignment);
+	uint32_t group_stride = group_size;
+	vk::DeviceAddress sbt_address = m_device.getBufferAddress({ rt_sbt_buffer.buffer });
 
-	vk::DeviceSize sbt_size = prog_size * (vk::DeviceSize)rt_shader_groups.size();
+	using Stride = vk::StridedDeviceAddressRegionKHR;
+	std::array<Stride, 4> stride_addresses{ // raygen
+		Stride{ sbt_address + 0u * group_size, group_stride, group_size * 1 },
+		// miss
+		Stride{ sbt_address + 1u * group_size, group_stride, group_size * 2 },
+		// hit
+		Stride{ sbt_address + 3u * group_size, group_stride, group_size * 3 },
+		// callable
+		Stride{ sbt_address + 5u * group_size, group_stride, group_size * 4 }
+	};
 
-	const vk::StridedBufferRegionKHR raygen_sbt = { rt_sbt_buffer.buffer, raygen_offset, prog_size, sbt_size };
-	const vk::StridedBufferRegionKHR miss_sbt = { rt_sbt_buffer.buffer, miss_offset, prog_size, sbt_size };
-	const vk::StridedBufferRegionKHR hit_sbt = { rt_sbt_buffer.buffer, hit_group_offset, prog_size, sbt_size };
-	const vk::StridedBufferRegionKHR callable_sbt;
-
-	cmd_buf.traceRaysKHR(&raygen_sbt, &miss_sbt, &hit_sbt, &callable_sbt, m_size.width, m_size.height, 1);
+	cmd_buf.traceRaysKHR(&stride_addresses[0],
+			&stride_addresses[1],
+			&stride_addresses[2],
+			&stride_addresses[3],
+			m_size.width,
+			m_size.height,
+			1);
 
 	debug.endLabel(cmd_buf);
 }
@@ -746,47 +762,40 @@ void Opal::updateUniformBuffer() {
 }
 
 void Opal::initRayTracing() {
-	auto properties =
-			m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceRayTracingPropertiesKHR>();
 
-	rt_properties = properties.get<vk::PhysicalDeviceRayTracingPropertiesKHR>();
+	// todo looks like the props were split up too
+
+	auto properties =
+			m_physicalDevice
+					.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+
+	rt_pipeline_properties = properties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 	rt_builder.setup(m_device, &alloc, m_graphicsQueueIndex);
 }
 
-nvvk::RaytracingBuilderKHR::Blas Opal::objectToVkGeometryKHR(const ObjModel &model) {
-
-	// acceleration structure info
-	vk::AccelerationStructureCreateGeometryTypeInfoKHR as_info;
-	as_info.setGeometryType(vk::GeometryTypeKHR::eTriangles);
-	as_info.setIndexType(vk::IndexType::eUint32);
-	as_info.setVertexFormat(vk::Format::eR32G32B32A32Sfloat);
-	// indices / 3 = triangle count
-	as_info.setMaxPrimitiveCount(model.indices / 3);
-	as_info.setMaxVertexCount(model.vertices);
-	// no adding transformation matrices
-	as_info.setAllowsTransforms(VK_FALSE);
+nvvk::RaytracingBuilderKHR::BlasInput Opal::objectToVkGeometryKHR(const ObjModel &model) {
 
 	vk::AccelerationStructureGeometryTrianglesDataKHR triangles;
-	triangles.setVertexFormat(as_info.vertexFormat);
-	triangles.setIndexType(as_info.indexType);
+	triangles.setVertexFormat(vk::Format::eR32G32B32A32Sfloat);
+	triangles.setIndexType(vk::IndexType::eUint32);
 	triangles.setVertexData(m_device.getBufferAddress({ model.vertex_buffer.buffer }));
 	triangles.setIndexData(m_device.getBufferAddress({ model.index_buffer.buffer }));
 	triangles.setVertexStride(sizeof(VertexObj));
 	triangles.setTransformData({});
+	triangles.setMaxVertex(model.vertices);
 
 	vk::AccelerationStructureGeometryKHR as_geometry;
-	as_geometry.setGeometryType(as_info.geometryType);
+	as_geometry.setGeometryType(vk::GeometryTypeKHR::eTriangles);
 	as_geometry.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 	as_geometry.geometry.setTriangles(triangles);
 
-	vk::AccelerationStructureBuildOffsetInfoKHR offset;
+	vk::AccelerationStructureBuildRangeInfoKHR offset;
 	offset.setFirstVertex(0);
-	offset.setPrimitiveCount(as_info.maxPrimitiveCount);
+	offset.setPrimitiveCount(model.indices / 3);
 	offset.setPrimitiveOffset(0);
 	offset.setTransformOffset(0);
 
-	nvvk::RaytracingBuilderKHR::Blas blas;
-	blas.asCreateGeometryInfo.emplace_back(as_info);
+	nvvk::RaytracingBuilderKHR::BlasInput blas;
 	blas.asGeometry.emplace_back(as_geometry);
 	blas.asBuildOffsetInfo.emplace_back(offset);
 
@@ -817,11 +826,11 @@ void Opal::createSpheres() {
 
 	// create two materials
 	MaterialObj mat;
-	mat.diffuse = vec3f(0, 1, 1);
+	mat.diffuse = nvmath::vec3f(0, 1, 1);
 	std::vector<MaterialObj> materials;
 	std::vector<int> mat_idx;
 	materials.emplace_back(mat);
-	mat.diffuse = vec3f(1, 1, 0);
+	mat.diffuse = nvmath::vec3f(1, 1, 0);
 	materials.emplace_back(mat);
 
 	// assign sphere materials
@@ -848,15 +857,7 @@ void Opal::createSpheres() {
 	debug.setObjectName(spheres_mat_index_buffer.buffer, "spheresMatIdx");
 }
 
-nvvk::RaytracingBuilderKHR::Blas Opal::sphereToVkGeometryKHR() {
-
-	vk::AccelerationStructureCreateGeometryTypeInfoKHR as_info;
-	as_info.setGeometryType(vk::GeometryTypeKHR::eAabbs);
-	as_info.setMaxPrimitiveCount((uint32_t)spheres.size());
-	as_info.setIndexType(vk::IndexType::eNoneKHR);
-	as_info.setVertexFormat(vk::Format::eUndefined);
-	as_info.setMaxVertexCount(0);
-	as_info.setAllowsTransforms(VK_FALSE);
+nvvk::RaytracingBuilderKHR::BlasInput Opal::sphereToVkGeometryKHR() {
 
 	auto data_address = m_device.getBufferAddress({ spheres_aabb_buffer.buffer });
 	vk::AccelerationStructureGeometryAabbsDataKHR aabbs;
@@ -864,19 +865,18 @@ nvvk::RaytracingBuilderKHR::Blas Opal::sphereToVkGeometryKHR() {
 	aabbs.setStride(sizeof(Aabb));
 
 	vk::AccelerationStructureGeometryKHR as_geom;
-	as_geom.setGeometryType(as_info.geometryType);
+	as_geom.setGeometryType(vk::GeometryTypeKHR::eAabbs);
 	as_geom.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 	as_geom.geometry.setAabbs(aabbs);
 
-	vk::AccelerationStructureBuildOffsetInfoKHR offset;
+	vk::AccelerationStructureBuildRangeInfoKHR offset;
 	offset.setFirstVertex(0);
-	offset.setPrimitiveCount(as_info.maxPrimitiveCount);
+	offset.setPrimitiveCount((uint32_t)spheres.size());
 	offset.setPrimitiveOffset(0);
 	offset.setTransformOffset(0);
 
-	nvvk::RaytracingBuilderKHR::Blas blas;
+	nvvk::RaytracingBuilderKHR::BlasInput blas;
 	blas.asGeometry.emplace_back(as_geom);
-	blas.asCreateGeometryInfo.emplace_back(as_info);
 	blas.asBuildOffsetInfo.emplace_back(offset);
 
 	return blas;
@@ -982,15 +982,15 @@ void Opal::createVolumeTextureImage(const vk::CommandBuffer &cmd_buf) {
 	}
 }
 
-nvvk::RaytracingBuilderKHR::Blas Opal::volumeToVkGeometryKHR() {
+nvvk::RaytracingBuilderKHR::BlasInput Opal::volumeToVkGeometryKHR() {
 
-	vk::AccelerationStructureCreateGeometryTypeInfoKHR as_info;
-	as_info.setGeometryType(vk::GeometryTypeKHR::eAabbs);
-	as_info.setMaxPrimitiveCount((uint32_t)volumes.size());
-	as_info.setIndexType(vk::IndexType::eNoneKHR);
-	as_info.setVertexFormat(vk::Format::eUndefined);
-	as_info.setMaxVertexCount(0);
-	as_info.setAllowsTransforms(VK_FALSE);
+	// vk::AccelerationStructureCreateGeometryTypeInfoKHR as_info;
+	// as_info.setGeometryType(vk::GeometryTypeKHR::eAabbs);
+	// as_info.setMaxPrimitiveCount((uint32_t)volumes.size());
+	// as_info.setIndexType(vk::IndexType::eNoneKHR);
+	// as_info.setVertexFormat(vk::Format::eUndefined);
+	// as_info.setMaxVertexCount(0);
+	// as_info.setAllowsTransforms(VK_FALSE);
 
 	auto data_address = m_device.getBufferAddress({ volumes_aabb_buffer.buffer });
 	vk::AccelerationStructureGeometryAabbsDataKHR aabbs;
@@ -998,19 +998,18 @@ nvvk::RaytracingBuilderKHR::Blas Opal::volumeToVkGeometryKHR() {
 	aabbs.setStride(sizeof(Aabb));
 
 	vk::AccelerationStructureGeometryKHR as_geom;
-	as_geom.setGeometryType(as_info.geometryType);
+	as_geom.setGeometryType(vk::GeometryTypeKHR::eAabbs);
 	as_geom.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
 	as_geom.geometry.setAabbs(aabbs);
 
-	vk::AccelerationStructureBuildOffsetInfoKHR offset;
+	vk::AccelerationStructureBuildRangeInfoKHR offset;
 	offset.setFirstVertex(0);
-	offset.setPrimitiveCount(as_info.maxPrimitiveCount);
+	offset.setPrimitiveCount((uint32_t)volumes.size());
 	offset.setPrimitiveOffset(0);
 	offset.setTransformOffset(0);
 
-	nvvk::RaytracingBuilderKHR::Blas blas;
+	nvvk::RaytracingBuilderKHR::BlasInput blas;
 	blas.asGeometry.emplace_back(as_geom);
-	blas.asCreateGeometryInfo.emplace_back(as_info);
 	blas.asBuildOffsetInfo.emplace_back(offset);
 
 	return blas;
@@ -1018,7 +1017,7 @@ nvvk::RaytracingBuilderKHR::Blas Opal::volumeToVkGeometryKHR() {
 
 void Opal::createBottomLevelAS() {
 
-	std::vector<nvvk::RaytracingBuilderKHR::Blas> all_blas;
+	std::vector<nvvk::RaytracingBuilderKHR::BlasInput> all_blas;
 	all_blas.reserve(object_models.size());
 
 	// add normal object models
@@ -1051,8 +1050,8 @@ void Opal::createTopLevelAS() {
 		nvvk::RaytracingBuilderKHR::Instance ray_info;
 		// object transform
 		ray_info.transform = object_instances[i].transform;
-		ray_info.instanceId = i;
-		// gl_InstanceID
+		// gl_InstanceCustomIndexEXT
+		ray_info.instanceCustomId = i;
 		ray_info.blasId = object_instances[i].object_index;
 		// all objects in the same hit group
 		ray_info.hitGroupId = 0;
@@ -1063,8 +1062,10 @@ void Opal::createTopLevelAS() {
 
 	{
 		nvvk::RaytracingBuilderKHR::Instance ray_info;
+		// object transform
 		ray_info.transform = object_instances[0].transform;
-		ray_info.instanceId = static_cast<uint32_t>(tlas.size());
+		// gl_InstanceCustomIndexEXT
+		ray_info.instanceCustomId = static_cast<uint32_t>(tlas.size());
 		ray_info.blasId = static_cast<uint32_t>(object_models.size());
 		// use hit group 1 for primitives
 		ray_info.hitGroupId = 1;
@@ -1237,12 +1238,12 @@ void Opal::createRtPipeline() {
 	ray_pipeline_info.setPGroups(rt_shader_groups.data());
 
 	// max ray depth
-	ray_pipeline_info.setMaxRecursionDepth(2);
+	ray_pipeline_info.setMaxPipelineRayRecursionDepth(2);
 	ray_pipeline_info.setLayout(rt_pipeline_layout);
 
 	// set the pipeline
 	rt_graphics_pipeline =
-			static_cast<const vk::Pipeline &>(m_device.createRayTracingPipelineKHR({}, ray_pipeline_info).value);
+			static_cast<const vk::Pipeline &>(m_device.createRayTracingPipelineKHR({}, {}, ray_pipeline_info).value);
 
 	// cleanup
 	m_device.destroy(raygen_shader);
@@ -1258,8 +1259,8 @@ void Opal::createRtPipeline() {
 void Opal::createRtShaderBindingTable() {
 
 	auto group_count = static_cast<uint32_t>(rt_shader_groups.size());
-	auto group_handle_size = rt_properties.shaderGroupHandleSize;
-	auto base_alignment = rt_properties.shaderGroupBaseAlignment;
+	auto group_handle_size = rt_pipeline_properties.shaderGroupHandleSize;
+	auto base_alignment = rt_pipeline_properties.shaderGroupBaseAlignment;
 
 	auto sbt_size = group_count * base_alignment;
 

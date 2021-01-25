@@ -1,6 +1,8 @@
 ﻿bin
 cmake-build-debug
+build/
+out/
+.vs/
+.idea/
 
 log_opal.txt
-
-build/

@@ -5,7 +5,7 @@
 			"includePath": [
 				"${workspaceFolder}/**",
 				"C:/Users/jacob/.conan/data/**",
-				"M:/VulkanSDK/1.2.154.1/Include"
+				"M:/VulkanSDK/1.2.162.0/Include"
 			],
 			"defines": ["_DEBUG", "UNICODE", "_UNICODE"],
 			"windowsSdkVersion": "10.0.18362.0",

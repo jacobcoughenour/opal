@@ -166,7 +166,7 @@ private:
 
 	// Ray-tracing
 
-	vk::PhysicalDeviceRayTracingPropertiesKHR rt_properties;
+	vk::PhysicalDeviceRayTracingPipelinePropertiesKHR rt_pipeline_properties;
 	nvvk::RaytracingBuilderKHR rt_builder;
 	std::vector<vk::RayTracingShaderGroupCreateInfoKHR> rt_shader_groups;
 	nvvk::Buffer rt_sbt_buffer;
@@ -194,13 +194,13 @@ private:
 	/**
 	 * converts object geometry to ray tracing acceleration structure
 	 */
-	nvvk::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel &model);
+	nvvk::RaytracingBuilderKHR::BlasInput objectToVkGeometryKHR(const ObjModel &model);
 
 	void createSpheres();
-	nvvk::RaytracingBuilderKHR::Blas sphereToVkGeometryKHR();
+	nvvk::RaytracingBuilderKHR::BlasInput sphereToVkGeometryKHR();
 
 	void createVolumes();
-	nvvk::RaytracingBuilderKHR::Blas volumeToVkGeometryKHR();
+	nvvk::RaytracingBuilderKHR::BlasInput volumeToVkGeometryKHR();
 	void createVolumeTextureImage(const vk::CommandBuffer &cmd_buf);
 
 	/**

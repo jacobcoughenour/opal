@@ -54,29 +54,34 @@ int main(int argc, char **argv) {
 	ctx_info.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
 
 	// INSTANCE EXTENSIONS
-	ctx_info.addInstanceExtension(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+	ctx_info.addInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, true);
 	ctx_info.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
-	ctx_info.addInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 #ifdef WIN32
 	ctx_info.addInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #else
 	ctx_info.addInstanceExtension(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
 	ctx_info.addInstanceExtension(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
 #endif
+	ctx_info.addInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
 	// DEVICE EXTENSIONS
 	ctx_info.addDeviceExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 	ctx_info.addDeviceExtension(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME);
 	ctx_info.addDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
+	ctx_info.addDeviceExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+	ctx_info.addDeviceExtension(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);
+
+	// ray tracing specific extensions
 	ctx_info.addDeviceExtension(VK_KHR_MAINTENANCE3_EXTENSION_NAME);
 	ctx_info.addDeviceExtension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
 	ctx_info.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
 	ctx_info.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
 
-	// activate ray tracing
-	vk::PhysicalDeviceRayTracingFeaturesKHR rt_features;
-	// todo https://www.khronos.org/blog/vulkan-ray-tracing-final-specification-release
-	ctx_info.addDeviceExtension(VK_KHR_RAY_TRACING_EXTENSION_NAME, false, &rt_features);
+	// activate ray tracing extensions and get device props when they are found
+	vk::PhysicalDeviceAccelerationStructureFeaturesKHR accel_features;
+	ctx_info.addDeviceExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false, &accel_features);
+	vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rt_pipeline_features;
+	ctx_info.addDeviceExtension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false, &rt_pipeline_features);
 
 	// Vulkan app instance
 
