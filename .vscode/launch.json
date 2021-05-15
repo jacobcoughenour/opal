@@ -26,14 +26,22 @@
 			"name": "Launch (Linux)",
 			"type": "cppdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}/build/bin/opal.exe",
-			"cwd": "${workspaceFolder}",
+			"program": "${workspaceFolder}/build/bin/opal",
+			"cwd": "${workspaceFolder}/build/bin",
 			"args": [],
 			"stopAtEntry": false,
+			"MIMode": "gdb",
 			"environment": [
 				{
 					"name": "PATH",
 					"value": "$PATH:${command:cmake.launchTargetDirectory}"
+				}
+			],
+			"setupCommands": [
+				{
+					"description": "Enable pretty-printing for gdb",
+					"text": "-enable-pretty-printing",
+					"ignoreFailures": true
 				}
 			],
 			"externalConsole": false
