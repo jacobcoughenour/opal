@@ -73,6 +73,16 @@
 		"xlocbuf": "cpp",
 		"xlocmes": "cpp",
 		"xlocmon": "cpp",
-		"xloctime": "cpp"
+		"xloctime": "cpp",
+		"cstdarg": "cpp",
+		"cwctype": "cpp",
+		"bit": "cpp",
+		"*.tcc": "cpp",
+		"condition_variable": "cpp",
+		"memory_resource": "cpp",
+		"string_view": "cpp",
+		"ranges": "cpp",
+		"stop_token": "cpp",
+		"cinttypes": "cpp"
 	}
 }
