@@ -1,9 +1,13 @@
 #ifndef __RENDERER_H__
 #define __RENDERER_H__
 
-#include "../utils/log.h"
+#include "../typedefs.h"
 #include "config.h"
 #include "shader.h"
+
+// #define VMA_IMPLEMENTATION
+// #define VMA_STATIC_VULKAN_FUNCTIONS 0
+#include "vk_mem_alloc.h"
 
 #include <volk.h>
 
@@ -11,12 +15,55 @@
 
 #include <GLFW/glfw3.h>
 
+#include <glm/glm.hpp>
+
+#include <array>
+#include <cstring>
+#include <optional>
+#include <set>
+#include <vector>
+
 namespace Opal {
+
+struct Vertex {
+	glm::vec2 pos;
+	glm::vec3 color;
+	static VkVertexInputBindingDescription get_binding_description() {
+		VkVertexInputBindingDescription desc{};
+		desc.binding = 0;
+		desc.stride = sizeof(Vertex);
+		desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+		return desc;
+	}
+
+	static std::array<VkVertexInputAttributeDescription, 2>
+	get_attribute_descriptions() {
+		std::array<VkVertexInputAttributeDescription, 2>
+				attribute_descriptions{};
+
+		attribute_descriptions[0].binding = 0;
+		attribute_descriptions[0].location = 0;
+		attribute_descriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		attribute_descriptions[0].offset = offsetof(Vertex, pos);
+
+		attribute_descriptions[1].binding = 0;
+		attribute_descriptions[1].location = 1;
+		attribute_descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attribute_descriptions[1].offset = offsetof(Vertex, color);
+
+		return attribute_descriptions;
+	}
+};
+
+const std::vector<Vertex> vertices = { { { 0.0f, -0.5f },
+											   { 1.0f, 0.0f, 0.0f } },
+	{ { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
+	{ { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } } };
 
 class Renderer {
 
 public:
-	int initialize();
+	Error initialize();
 	void destroy();
 	void start_render_loop();
 
@@ -32,6 +79,9 @@ protected:
 	vkb::Device _vkb_device;
 	vkb::Swapchain _vkb_swapchain;
 
+	// vk mem allocator
+	VmaAllocator _vma_allocator;
+
 	// queues
 	VkQueue _graphics_queue;
 	VkQueue _present_queue;
@@ -44,6 +94,10 @@ protected:
 	// commands
 	VkCommandPool _command_pool;
 	std::vector<VkCommandBuffer> _command_buffers;
+
+	// buffers
+	VkBuffer _vertex_buffer;
+	VmaAllocation _vertex_buffer_alloc;
 
 	// images
 	std::vector<VkImage> _swapchain_images;
@@ -58,22 +112,24 @@ protected:
 
 	size_t _current_frame = 0;
 
-	int create_window();
-	int create_vk_instance();
-	int create_surface();
-	int create_vk_device();
-	int create_swapchain();
-	int get_queues();
-	int create_render_pass();
-	int create_graphics_pipeline();
-	int create_framebuffers();
-	int create_command_pool();
-	int create_command_buffers();
-	int create_sync_objects();
+	Error create_window();
+	Error create_vk_instance();
+	Error create_surface();
+	Error create_vk_device();
+	Error create_vma_allocator();
+	Error create_swapchain();
+	Error get_queues();
+	Error create_render_pass();
+	Error create_graphics_pipeline();
+	Error create_framebuffers();
+	Error create_command_pool();
+	Error create_vertex_buffer();
+	Error create_command_buffers();
+	Error create_sync_objects();
 
-	int recreate_swapchain();
+	Error recreate_swapchain();
 
-	int draw_frame();
+	Error draw_frame();
 };
 
 } // namespace Opal

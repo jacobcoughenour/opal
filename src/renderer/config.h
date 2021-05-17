@@ -7,8 +7,7 @@
 // WINDOW SETTINGS
 
 #define WINDOW_TITLE "Opal"
-#define INIT_WIDTH 1280
-#define INIT_HEIGHT 720
+#define WINDOW_INIT_SIZE 1280, 720
 
 // VULKAN SETTINGS
 
@@ -21,10 +20,10 @@
 #define USE_VALIDATION_LAYERS
 
 // required vulkan api version
-#define VK_REQUIRED_API_VERSION 1, 1, 0
+#define VK_REQUIRED_API_VERSION VK_API_VERSION_1_1
 
 // minimum vulkan api version supported by device
-#define VK_DEVICE_MINIMUM_VERSION 1, 1
+#define VK_DEVICE_MINIMUM_VERSION VK_API_VERSION_1_1
 
 // vulkan instance extensions
 const std::vector<const char *> VK_INSTANCE_EXTENSIONS = {

@@ -2,7 +2,7 @@ add_subdirectory(renderer)
 add_subdirectory(shaders)
 add_subdirectory(utils)
 
-set(${PROJECT_NAME}_SOURCES app.cpp app.h main.cpp)
+set(${PROJECT_NAME}_SOURCES app.cpp app.h typedefs.h main.cpp)
 
 add_executable(${PROJECT_NAME} ${${PROJECT_NAME}_SOURCES})
 

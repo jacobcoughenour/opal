@@ -1,64 +1,62 @@
 #include "renderer.h"
 
-// clang-format off
-#define TRY(f) if (f() != VK_SUCCESS) return EXIT_FAILURE;
-// clang-format on
-
 using namespace Opal;
 
 static void glfw_error_callback(int error, const char *description) {
 	LOG_ERR("GLFW Error %d: %s", error, description);
 }
 
-int Renderer::initialize() {
+Error Renderer::initialize() {
 
-	TRY(volkInitialize);
+	ERR_FAIL_COND_V_MSG(volkInitialize(), FAIL, "Failed to initialize Volk");
 
-	TRY(create_window);
-	TRY(create_vk_instance);
-	TRY(create_surface);
-	TRY(create_vk_device);
-	TRY(create_swapchain);
-	TRY(get_queues);
-	TRY(create_render_pass);
-	TRY(create_graphics_pipeline);
-	TRY(create_framebuffers);
-	TRY(create_command_pool);
-	TRY(create_command_buffers);
-	TRY(create_sync_objects);
+	ERR_TRY(create_window);
+	ERR_TRY(create_vk_instance);
+	ERR_TRY(create_surface);
+	ERR_TRY(create_vk_device);
+	ERR_TRY(create_vma_allocator);
+	ERR_TRY(create_swapchain);
+	ERR_TRY(get_queues);
+	ERR_TRY(create_render_pass);
+	ERR_TRY(create_graphics_pipeline);
+	ERR_TRY(create_framebuffers);
+	ERR_TRY(create_command_pool);
+	ERR_TRY(create_vertex_buffer);
+	ERR_TRY(create_command_buffers);
+	ERR_TRY(create_sync_objects);
 
 	_initialized = true;
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_window() {
+Error Renderer::create_window() {
 
 	// set callback for logging glfw errors
 	glfwSetErrorCallback(glfw_error_callback);
 
 	// initialize glfw library
-	if (!glfwInit()) {
-		return EXIT_FAILURE;
-	}
+	ERR_FAIL_COND_V_MSG(!glfwInit(), FAIL, "Failed to initialize GLFW");
 
 	// disable automatic OpenGL context creation from glfw
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
 	// create window
-	_window = glfwCreateWindow(
-			INIT_WIDTH, INIT_HEIGHT, WINDOW_TITLE, nullptr, nullptr);
+	_window =
+			glfwCreateWindow(WINDOW_INIT_SIZE, WINDOW_TITLE, nullptr, nullptr);
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_vk_instance() {
+Error Renderer::create_vk_instance() {
 	// start building vulkan instance
 	vkb::InstanceBuilder instance_builder;
 
 	instance_builder.set_app_name(VK_APP_NAME)
 			.set_engine_name(VK_ENGINE_NAME)
-			.require_api_version(VK_REQUIRED_API_VERSION);
+			.require_api_version(VK_VERSION_MAJOR(VK_REQUIRED_API_VERSION),
+					VK_VERSION_MINOR(VK_REQUIRED_API_VERSION),
+					VK_VERSION_PATCH(VK_REQUIRED_API_VERSION));
 
 #ifdef USE_VALIDATION_LAYERS
 	// enable validation layers
@@ -70,7 +68,7 @@ int Renderer::create_vk_instance() {
 					VkDebugUtilsMessageTypeFlagsEXT messageType,
 					const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
 					void *pUserData) -> VkBool32 {
-				LOG("[%s: %s] %s",
+				LOG("VK [%s: %s] %s",
 						vkb::to_string_message_severity(messageSeverity),
 						vkb::to_string_message_type(messageType),
 						pCallbackData->pMessage);
@@ -86,12 +84,11 @@ int Renderer::create_vk_instance() {
 	// build vulkan instance
 	auto instance_builder_return = instance_builder.build();
 
-	// handle vulkan instance errors
-	if (!instance_builder_return) {
-		LOG_ERR("Failed to create Vulkan instance: %s",
-				instance_builder_return.error().message());
-		return EXIT_FAILURE;
-	}
+	// check instance is valid
+	ERR_FAIL_COND_V_MSG(!instance_builder_return,
+			FAIL,
+			"Failed to create Vulkan instance: %s",
+			instance_builder_return.error().message());
 
 	// get the final vulkan instance
 	_vkb_instance = instance_builder_return.value();
@@ -99,20 +96,23 @@ int Renderer::create_vk_instance() {
 	// attach volk to instance
 	volkLoadInstance(_vkb_instance.instance);
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_surface() {
+Error Renderer::create_surface() {
 	_vk_surface = nullptr;
 	VkResult err = glfwCreateWindowSurface(
 			_vkb_instance.instance, _window, NULL, &_vk_surface);
-	if (err != VK_SUCCESS) {
-		return EXIT_FAILURE;
-	}
-	return EXIT_SUCCESS;
+
+	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+			FAIL,
+			"Failed to create glfw window surface: %s",
+			err);
+
+	return OK;
 }
 
-int Renderer::create_vk_device() {
+Error Renderer::create_vk_device() {
 
 	// create device selector
 	vkb::PhysicalDeviceSelector device_selector{ _vkb_instance };
@@ -123,7 +123,10 @@ int Renderer::create_vk_device() {
 
 	// pick compatible device
 	vkb::PhysicalDevice physical_device =
-			device_selector.set_minimum_version(VK_DEVICE_MINIMUM_VERSION)
+			device_selector
+					.set_minimum_version(
+							VK_VERSION_MAJOR(VK_DEVICE_MINIMUM_VERSION),
+							VK_VERSION_MINOR(VK_DEVICE_MINIMUM_VERSION))
 					.set_surface(_vk_surface)
 					.select()
 					.value();
@@ -131,11 +134,10 @@ int Renderer::create_vk_device() {
 	vkb::DeviceBuilder device_builder{ physical_device };
 	auto device_builder_return = device_builder.build();
 
-	if (!device_builder_return) {
-		LOG_ERR("Failed to create Vulkan device: %s",
-				device_builder_return.error().message());
-		return EXIT_FAILURE;
-	}
+	ERR_FAIL_COND_V_MSG(!device_builder_return,
+			FAIL,
+			"Failed to create Vulkan device: %s",
+			device_builder_return.error().message());
 
 	// get final vulkan device
 	_vkb_device = device_builder_return.value();
@@ -143,10 +145,75 @@ int Renderer::create_vk_device() {
 	// attach volk to device
 	volkLoadDevice(_vkb_device.device);
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_swapchain() {
+Error Renderer::create_vma_allocator() {
+
+	VmaAllocatorCreateInfo allocator_info = {};
+	allocator_info.vulkanApiVersion = VK_REQUIRED_API_VERSION;
+	allocator_info.physicalDevice = _vkb_device.physical_device.physical_device;
+	allocator_info.device = _vkb_device.device;
+	allocator_info.instance = _vkb_instance.instance;
+
+	// get vulkan function pointers from volk
+
+	VolkDeviceTable table;
+	volkLoadDeviceTable(&table, _vkb_device.device);
+
+	// remap volk table to vma table
+	VmaVulkanFunctions vulkan_funcs = {};
+	{
+		vulkan_funcs.vkGetPhysicalDeviceProperties =
+				vkGetPhysicalDeviceProperties;
+		vulkan_funcs.vkGetPhysicalDeviceMemoryProperties =
+				vkGetPhysicalDeviceMemoryProperties;
+		vulkan_funcs.vkAllocateMemory = table.vkAllocateMemory;
+		vulkan_funcs.vkFreeMemory = table.vkFreeMemory;
+		vulkan_funcs.vkMapMemory = table.vkMapMemory;
+		vulkan_funcs.vkUnmapMemory = table.vkUnmapMemory;
+		vulkan_funcs.vkFlushMappedMemoryRanges =
+				table.vkFlushMappedMemoryRanges;
+		vulkan_funcs.vkInvalidateMappedMemoryRanges =
+				table.vkInvalidateMappedMemoryRanges;
+		vulkan_funcs.vkBindBufferMemory = table.vkBindBufferMemory;
+		vulkan_funcs.vkBindImageMemory = table.vkBindImageMemory;
+		vulkan_funcs.vkGetBufferMemoryRequirements =
+				table.vkGetBufferMemoryRequirements;
+		vulkan_funcs.vkGetImageMemoryRequirements =
+				table.vkGetImageMemoryRequirements;
+		vulkan_funcs.vkCreateBuffer = table.vkCreateBuffer;
+		vulkan_funcs.vkDestroyBuffer = table.vkDestroyBuffer;
+		vulkan_funcs.vkCreateImage = table.vkCreateImage;
+		vulkan_funcs.vkDestroyImage = table.vkDestroyImage;
+		vulkan_funcs.vkCmdCopyBuffer = table.vkCmdCopyBuffer;
+#if VMA_DEDICATED_ALLOCATION || VMA_VULKAN_VERSION >= 1001000
+		vulkan_funcs.vkGetBufferMemoryRequirements2KHR =
+				table.vkGetBufferMemoryRequirements2KHR;
+		vulkan_funcs.vkGetImageMemoryRequirements2KHR =
+				table.vkGetImageMemoryRequirements2KHR;
+#endif
+#if VMA_BIND_MEMORY2 || VMA_VULKAN_VERSION >= 1001000
+		vulkan_funcs.vkBindBufferMemory2KHR = table.vkBindBufferMemory2KHR;
+		vulkan_funcs.vkBindImageMemory2KHR = table.vkBindImageMemory2KHR;
+#endif
+#if VMA_MEMORY_BUDGET || VMA_VULKAN_VERSION >= 1001000
+		vulkan_funcs.vkGetPhysicalDeviceMemoryProperties2KHR =
+				vkGetPhysicalDeviceMemoryProperties2KHR;
+#endif
+	}
+
+	allocator_info.pVulkanFunctions = &vulkan_funcs;
+
+	ERR_FAIL_COND_V_MSG(
+			vmaCreateAllocator(&allocator_info, &_vma_allocator) != VK_SUCCESS,
+			FAIL,
+			"Failed to create Vulkan Memory Allocator");
+
+	return OK;
+}
+
+Error Renderer::create_swapchain() {
 
 	// (re)build swapchain
 	vkb::SwapchainBuilder swapchain_builder{ _vkb_device };
@@ -159,7 +226,7 @@ int Renderer::create_swapchain() {
 		LOG_ERR("Failed to create Vulkan swapchain: %s",
 				swap_ret.error().message());
 		_vkb_swapchain.swapchain = VK_NULL_HANDLE;
-		return EXIT_FAILURE;
+		return FAIL;
 	}
 
 	// destroy old swapchain
@@ -168,30 +235,31 @@ int Renderer::create_swapchain() {
 	// get final swapchain
 	_vkb_swapchain = swap_ret.value();
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::get_queues() {
+Error Renderer::get_queues() {
+
+	// get graphics queue
 	auto graphics_queue = _vkb_device.get_queue(vkb::QueueType::graphics);
-	if (!graphics_queue.has_value()) {
-		LOG_ERR("Failed to get graphics queue: %s",
-				graphics_queue.error().message());
-		return EXIT_FAILURE;
-	}
+	ERR_FAIL_COND_V_MSG(!graphics_queue.has_value(),
+			FAIL,
+			"Failed to get graphics queue: %s",
+			graphics_queue.error().message());
 	_graphics_queue = graphics_queue.value();
 
+	// get presentation queue
 	auto present_queue = _vkb_device.get_queue(vkb::QueueType::present);
-	if (!present_queue.has_value()) {
-		LOG_ERR("Failed to get presentation queue: %s",
-				present_queue.error().message());
-		return EXIT_FAILURE;
-	}
+	ERR_FAIL_COND_V_MSG(!present_queue.has_value(),
+			FAIL,
+			"Failed to get presentation queue: %s",
+			present_queue.error().message());
 	_present_queue = present_queue.value();
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_render_pass() {
+Error Renderer::create_render_pass() {
 	// clang-format off
 	VkAttachmentDescription color_attachment = {};
 	color_attachment.format			= _vkb_swapchain.image_format;
@@ -231,17 +299,16 @@ int Renderer::create_render_pass() {
 	pass_info.pDependencies		= &dependency;
 	// clang-format on
 
-	if (vkCreateRenderPass(
-				_vkb_device.device, &pass_info, nullptr, &_render_pass) !=
-			VK_SUCCESS) {
-		LOG_ERR("Failed to create render pass");
-		return EXIT_FAILURE;
-	}
+	// create render pass
+	VkResult err = vkCreateRenderPass(
+			_vkb_device.device, &pass_info, nullptr, &_render_pass);
+	ERR_FAIL_COND_V_MSG(
+			err != VK_SUCCESS, FAIL, "Failed to create render pass");
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_graphics_pipeline() {
+Error Renderer::create_graphics_pipeline() {
 
 	auto vert_shader = createShaderModuleFromFile(
 			_vkb_device.device, "shaders/vert_shader.vert");
@@ -249,7 +316,7 @@ int Renderer::create_graphics_pipeline() {
 			_vkb_device.device, "shaders/frag_shader.frag");
 
 	if (vert_shader == VK_NULL_HANDLE || frag_shader == VK_NULL_HANDLE) {
-		return EXIT_FAILURE;
+		return FAIL;
 	}
 
 	VkPipelineShaderStageCreateInfo vert_stage_info = {};
@@ -270,8 +337,16 @@ int Renderer::create_graphics_pipeline() {
 	VkPipelineVertexInputStateCreateInfo vertex_input_info = {};
 	vertex_input_info.sType =
 			VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertex_input_info.vertexBindingDescriptionCount = 0;
-	vertex_input_info.vertexAttributeDescriptionCount = 0;
+
+	auto binding_description = Vertex::get_binding_description();
+	auto attribute_descriptions = Vertex::get_attribute_descriptions();
+
+	vertex_input_info.vertexBindingDescriptionCount = 1;
+	vertex_input_info.pVertexBindingDescriptions = &binding_description;
+	vertex_input_info.vertexAttributeDescriptionCount =
+			static_cast<uint32_t>(attribute_descriptions.size());
+	vertex_input_info.pVertexAttributeDescriptions =
+			attribute_descriptions.data();
 
 	VkPipelineInputAssemblyStateCreateInfo input_assembly = {};
 	input_assembly.sType =
@@ -340,13 +415,13 @@ int Renderer::create_graphics_pipeline() {
 	pipeline_layout_info.setLayoutCount = 0;
 	pipeline_layout_info.pushConstantRangeCount = 0;
 
-	if (vkCreatePipelineLayout(_vkb_device.device,
-				&pipeline_layout_info,
-				nullptr,
-				&_pipeline_layout) != VK_SUCCESS) {
-		LOG_ERR("Failed to create pipeline layout");
-		return EXIT_FAILURE;
-	}
+	VkResult err = vkCreatePipelineLayout(_vkb_device.device,
+			&pipeline_layout_info,
+			nullptr,
+			&_pipeline_layout);
+
+	ERR_FAIL_COND_V_MSG(
+			err != VK_SUCCESS, FAIL, "Failed to create pipeline layout");
 
 	std::vector<VkDynamicState> dynamic_states = { VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR };
@@ -373,29 +448,31 @@ int Renderer::create_graphics_pipeline() {
 	pipeline_info.subpass = 0;
 	pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
 
-	if (vkCreateGraphicsPipelines(_vkb_device.device,
-				VK_NULL_HANDLE,
-				1,
-				&pipeline_info,
-				nullptr,
-				&_graphics_pipeline) != VK_SUCCESS) {
-		LOG_ERR("Failed to create graphics pipeline");
-		return EXIT_FAILURE;
-	}
+	err = vkCreateGraphicsPipelines(_vkb_device.device,
+			VK_NULL_HANDLE,
+			1,
+			&pipeline_info,
+			nullptr,
+			&_graphics_pipeline);
+
+	ERR_FAIL_COND_V_MSG(
+			err != VK_SUCCESS, FAIL, "Failed to create graphics pipeline");
 
 	// clean up shader modules
 	vkDestroyShaderModule(_vkb_device.device, frag_shader, nullptr);
 	vkDestroyShaderModule(_vkb_device.device, vert_shader, nullptr);
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_framebuffers() {
+Error Renderer::create_framebuffers() {
 
 	_swapchain_images = _vkb_swapchain.get_images().value();
 	_swapchain_image_views = _vkb_swapchain.get_image_views().value();
 
 	_framebuffers.resize(_swapchain_image_views.size());
+
+	VkResult err;
 
 	for (size_t i = 0; i < _swapchain_image_views.size(); i++) {
 		VkImageView attachments[] = { _swapchain_image_views[i] };
@@ -409,36 +486,80 @@ int Renderer::create_framebuffers() {
 		framebuffer_info.height = _vkb_swapchain.extent.height;
 		framebuffer_info.layers = 1;
 
-		if (vkCreateFramebuffer(_vkb_device.device,
-					&framebuffer_info,
-					nullptr,
-					&_framebuffers[i]) != VK_SUCCESS) {
-			LOG_ERR("Failed to create framebuffer[%d]", i);
-			return EXIT_FAILURE;
-		}
+		err = vkCreateFramebuffer(_vkb_device.device,
+				&framebuffer_info,
+				nullptr,
+				&_framebuffers[i]);
+
+		ERR_FAIL_COND_V_MSG(
+				err != VK_SUCCESS, FAIL, "Failed to create framebuffer[%d]", i);
 	}
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_command_pool() {
+Error Renderer::create_command_pool() {
 
 	VkCommandPoolCreateInfo pool_info = {};
 	pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	pool_info.queueFamilyIndex =
 			_vkb_device.get_queue_index(vkb::QueueType::graphics).value();
 
-	if (vkCreateCommandPool(
-				_vkb_device.device, &pool_info, nullptr, &_command_pool) !=
-			VK_SUCCESS) {
-		LOG_ERR("Failed to create command pool");
-		return EXIT_FAILURE;
-	}
+	VkResult err = vkCreateCommandPool(
+			_vkb_device.device, &pool_info, nullptr, &_command_pool);
+	ERR_FAIL_COND_V_MSG(
+			err != VK_SUCCESS, FAIL, "Failed to create command pool");
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_command_buffers() {
+Error Renderer::create_vertex_buffer() {
+
+	VkBufferCreateInfo buffer_info = {};
+	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	buffer_info.size = sizeof(vertices[0]) * vertices.size();
+	buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VmaAllocationCreateInfo alloc_info = {};
+	alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	alloc_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+								VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+	// todo we should store multiple buffers and allocs in a vector
+	// https://github.com/godotengine/godot/blob/92c04fa727e3fc507e31c1bce88beeceb98fb06a/drivers/vulkan/rendering_device_vulkan.cpp#L1373
+
+	VkResult err = vmaCreateBuffer(_vma_allocator,
+			&buffer_info,
+			&alloc_info,
+			&_vertex_buffer,
+			&_vertex_buffer_alloc,
+			nullptr);
+
+	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+			FAIL,
+			"Failed to allocate vertex buffer: %d",
+			(int)err);
+
+	// update buffer
+	// todo should be moved to an "update vertex buffers" type function
+
+	void *data = nullptr;
+	err = vmaMapMemory(_vma_allocator, _vertex_buffer_alloc, &data);
+
+	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+			FAIL,
+			"Failed to map vertex buffer memory: %d",
+			(int)err);
+
+	memcpy(data, vertices.data(), (size_t)buffer_info.size);
+
+	vmaUnmapMemory(_vma_allocator, _vertex_buffer_alloc);
+
+	return OK;
+}
+
+Error Renderer::create_command_buffers() {
 
 	_command_buffers.resize(_framebuffers.size());
 
@@ -448,22 +569,22 @@ int Renderer::create_command_buffers() {
 	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	alloc_info.commandBufferCount = (uint32_t)_command_buffers.size();
 
-	if (vkAllocateCommandBuffers(_vkb_device.device,
-				&alloc_info,
-				_command_buffers.data()) != VK_SUCCESS) {
-		LOG_ERR("Failed to allocate command buffers");
-		return EXIT_FAILURE;
-	}
+	VkResult err = vkAllocateCommandBuffers(
+			_vkb_device.device, &alloc_info, _command_buffers.data());
+
+	ERR_FAIL_COND_V_MSG(
+			err != VK_SUCCESS, FAIL, "Failed to allocate command buffers");
 
 	for (size_t i = 0; i < _command_buffers.size(); i++) {
 		VkCommandBufferBeginInfo begin_info = {};
 		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-		if (vkBeginCommandBuffer(_command_buffers[i], &begin_info) !=
-				VK_SUCCESS) {
-			LOG_ERR("Failed to begin command buffer [%d]", i);
-			return EXIT_FAILURE;
-		}
+		err = vkBeginCommandBuffer(_command_buffers[i], &begin_info);
+
+		ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+				FAIL,
+				"Failed to begin command buffer [%d]",
+				i);
 
 		VkRenderPassBeginInfo render_pass_info = {};
 		render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -493,22 +614,37 @@ int Renderer::create_command_buffers() {
 		vkCmdBeginRenderPass(_command_buffers[i],
 				&render_pass_info,
 				VK_SUBPASS_CONTENTS_INLINE);
-		vkCmdBindPipeline(_command_buffers[i],
-				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				_graphics_pipeline);
-		vkCmdDraw(_command_buffers[i], 3, 1, 0, 0);
+		// render pass
+		{
+			vkCmdBindPipeline(_command_buffers[i],
+					VK_PIPELINE_BIND_POINT_GRAPHICS,
+					_graphics_pipeline);
+
+			VkBuffer vertex_buffers[] = { _vertex_buffer };
+			VkDeviceSize offsets[] = { 0 };
+			vkCmdBindVertexBuffers(
+					_command_buffers[i], 0, 1, vertex_buffers, offsets);
+
+			vkCmdDraw(_command_buffers[i],
+					static_cast<uint32_t>(vertices.size()),
+					1,
+					0,
+					0);
+		}
 		vkCmdEndRenderPass(_command_buffers[i]);
 
-		if (vkEndCommandBuffer(_command_buffers[i]) != VK_SUCCESS) {
-			LOG_ERR("Failed to end command buffer [%d]", i);
-			return EXIT_FAILURE;
-		}
+		err = vkEndCommandBuffer(_command_buffers[i]);
+
+		ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+				FAIL,
+				"Failed to end command buffer [%d]",
+				i);
 	}
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::create_sync_objects() {
+Error Renderer::create_sync_objects() {
 
 	_available_semaphores.resize(MAX_FRAMES_IN_FLIGHT);
 	_finished_semaphores.resize(MAX_FRAMES_IN_FLIGHT);
@@ -536,14 +672,14 @@ int Renderer::create_sync_objects() {
 						nullptr,
 						&_in_flight_fences[i]) != VK_SUCCESS) {
 			LOG_ERR("Failed to create sync object [%d]", i);
-			return EXIT_FAILURE;
+			return FAIL;
 		}
 	}
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
-int Renderer::recreate_swapchain() {
+Error Renderer::recreate_swapchain() {
 	vkDeviceWaitIdle(_vkb_device.device);
 
 	vkDestroyCommandPool(_vkb_device.device, _command_pool, nullptr);
@@ -552,12 +688,20 @@ int Renderer::recreate_swapchain() {
 	}
 	_vkb_swapchain.destroy_image_views(_swapchain_image_views);
 
-	TRY(create_swapchain)
-	TRY(create_framebuffers)
-	TRY(create_command_pool)
-	TRY(create_command_buffers)
+	ERR_FAIL_COND_V_MSG(create_swapchain(),
+			FAIL,
+			"Failed to create_swapchain when recreating swapchain.");
+	ERR_FAIL_COND_V_MSG(create_framebuffers(),
+			FAIL,
+			"Failed to create_framebuffers when recreating swapchain.");
+	ERR_FAIL_COND_V_MSG(create_command_pool(),
+			FAIL,
+			"Failed to create_command_pool when recreating swapchain.");
+	ERR_FAIL_COND_V_MSG(create_command_buffers(),
+			FAIL,
+			"Failed to create_command_buffers when recreating swapchain.");
 
-	return EXIT_SUCCESS;
+	return OK;
 }
 
 void Renderer::destroy() {
@@ -587,6 +731,10 @@ void Renderer::destroy() {
 	_vkb_swapchain.destroy_image_views(_swapchain_image_views);
 
 	vkb::destroy_swapchain(_vkb_swapchain);
+
+	vmaDestroyBuffer(_vma_allocator, _vertex_buffer, _vertex_buffer_alloc);
+	vmaDestroyAllocator(_vma_allocator);
+
 	vkb::destroy_device(_vkb_device);
 	vkDestroySurfaceKHR(_vkb_instance.instance, _vk_surface, nullptr);
 	vkb::destroy_instance(_vkb_instance);
@@ -605,11 +753,11 @@ void Renderer::start_render_loop() {
 		if (!glfwGetWindowAttrib(_window, GLFW_VISIBLE))
 			continue;
 
-		draw_frame();
+		ERR_BREAK_MSG(draw_frame() != OK, "Failed to draw frame");
 	}
 }
 
-int Renderer::draw_frame() {
+Error Renderer::draw_frame() {
 
 	vkWaitForFences(_vkb_device.device,
 			1,
@@ -625,11 +773,14 @@ int Renderer::draw_frame() {
 			_available_semaphores[_current_frame],
 			VK_NULL_HANDLE,
 			&image_index);
+
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 		return recreate_swapchain();
-	} else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-		LOG_ERR("Failed to acquire swapchain image: %s", result);
-		return EXIT_FAILURE;
+	} else {
+		ERR_FAIL_COND_V_MSG(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR,
+				FAIL,
+				"Failed to acquire swapchain image: %s",
+				result);
 	}
 
 	if (_image_in_flight[image_index] != VK_NULL_HANDLE) {
@@ -661,13 +812,15 @@ int Renderer::draw_frame() {
 
 	vkResetFences(_vkb_device.device, 1, &_in_flight_fences[_current_frame]);
 
-	if (vkQueueSubmit(_graphics_queue,
-				1,
-				&submit_info,
-				_in_flight_fences[_current_frame]) != VK_SUCCESS) {
-		LOG_ERR("Failed to submit draw command buffer");
-		return EXIT_SUCCESS;
-	}
+	result = vkQueueSubmit(_graphics_queue,
+			1,
+			&submit_info,
+			_in_flight_fences[_current_frame]);
+
+	ERR_FAIL_COND_V_MSG(result != VK_SUCCESS,
+			FAIL,
+			"Failed to submit draw command buffer: %s",
+			result);
 
 	VkPresentInfoKHR present_info = {};
 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -682,12 +835,14 @@ int Renderer::draw_frame() {
 	result = vkQueuePresentKHR(_present_queue, &present_info);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
 		return recreate_swapchain();
-	} else if (result != VK_SUCCESS) {
-		LOG_ERR("Failed to present swapchain image");
-		return EXIT_FAILURE;
+	} else {
+		ERR_FAIL_COND_V_MSG(result != VK_SUCCESS,
+				FAIL,
+				"Failed to present swapchain image: %s",
+				result);
 	}
 
 	_current_frame = (_current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
-	return EXIT_SUCCESS;
+	return OK;
 }
