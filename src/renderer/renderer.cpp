@@ -515,25 +515,61 @@ Error Renderer::create_command_pool() {
 
 Error Renderer::create_vertex_buffer() {
 
+	uint32_t size = sizeof(vertices[0]) * vertices.size();
+
+	create_buffer(&_staging_buffer,
+			size,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VMA_MEMORY_USAGE_CPU_ONLY,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+					VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	void *data = nullptr;
+	VkResult err = vmaMapMemory(_vma_allocator, _staging_buffer.alloc, &data);
+
+	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+			FAIL,
+			"Failed to map staging buffer memory: %d",
+			(int)err);
+
+	memcpy(data, vertices.data(), (size_t)size);
+	vmaUnmapMemory(_vma_allocator, _staging_buffer.alloc);
+
+	create_buffer(&_vertex_buffer,
+			size,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+					VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			VMA_MEMORY_USAGE_GPU_ONLY,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	copy_buffer(&_staging_buffer, &_vertex_buffer, size);
+
+	destroy_buffer(&_staging_buffer);
+
+	return OK;
+}
+
+Error Renderer::create_buffer(Buffer *buffer,
+		uint32_t size,
+		uint32_t usage,
+		VmaMemoryUsage mapping,
+		VkMemoryPropertyFlags mem_flags) {
+
 	VkBufferCreateInfo buffer_info = {};
 	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	buffer_info.size = sizeof(vertices[0]) * vertices.size();
-	buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	buffer_info.size = size;
+	buffer_info.usage = usage;
 	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
 	VmaAllocationCreateInfo alloc_info = {};
-	alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-	alloc_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-								VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-	// todo we should store multiple buffers and allocs in a vector
-	// https://github.com/godotengine/godot/blob/92c04fa727e3fc507e31c1bce88beeceb98fb06a/drivers/vulkan/rendering_device_vulkan.cpp#L1373
+	alloc_info.usage = mapping;
+	alloc_info.preferredFlags = mem_flags;
 
 	VkResult err = vmaCreateBuffer(_vma_allocator,
 			&buffer_info,
 			&alloc_info,
-			&_vertex_buffer,
-			&_vertex_buffer_alloc,
+			&buffer->buffer,
+			&buffer->alloc,
 			nullptr);
 
 	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
@@ -541,20 +577,86 @@ Error Renderer::create_vertex_buffer() {
 			"Failed to allocate vertex buffer: %d",
 			(int)err);
 
-	// update buffer
-	// todo should be moved to an "update vertex buffers" type function
+	buffer->info.buffer = buffer->buffer;
+	buffer->info.offset = 0;
+	buffer->info.range = size;
+	buffer->size = size;
+	buffer->usage = usage;
 
-	void *data = nullptr;
-	err = vmaMapMemory(_vma_allocator, _vertex_buffer_alloc, &data);
+	return OK;
+}
 
-	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+Error Renderer::copy_buffer(
+		Buffer *src_buffer, Buffer *dst_buffer, uint32_t size) {
+
+	// todo
+	// https://github.com/godotengine/godot/blob/92c04fa727e3fc507e31c1bce88beeceb98fb06a/drivers/vulkan/rendering_device_vulkan.cpp#L1580
+
+	// https://vulkan-tutorial.com/en/Vertex_buffers/Staging_buffer
+
+	VkCommandBufferAllocateInfo alloc_info = {};
+	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	alloc_info.commandPool = _command_pool;
+	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	alloc_info.commandBufferCount = 1;
+
+	VkCommandBuffer command_buffer;
+	VkResult res = vkAllocateCommandBuffers(
+			_vkb_device.device, &alloc_info, &command_buffer);
+
+	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
 			FAIL,
-			"Failed to map vertex buffer memory: %d",
-			(int)err);
+			"Failed to allocate command buffer for buffer copy: %d",
+			(int)res);
 
-	memcpy(data, vertices.data(), (size_t)buffer_info.size);
+	VkCommandBufferBeginInfo begin_info = {};
+	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-	vmaUnmapMemory(_vma_allocator, _vertex_buffer_alloc);
+	res = vkBeginCommandBuffer(command_buffer, &begin_info);
+	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
+			FAIL,
+			"Failed to begin command buffer for buffer copy: %d",
+			(int)res);
+	{
+		VkBufferCopy copy_region = {};
+		copy_region.size = size;
+		vkCmdCopyBuffer(command_buffer,
+				src_buffer->buffer,
+				dst_buffer->buffer,
+				1,
+				&copy_region);
+	}
+	vkEndCommandBuffer(command_buffer);
+
+	VkSubmitInfo submit_info = {};
+	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &command_buffer;
+
+	res = vkQueueSubmit(_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
+			FAIL,
+			"Failed to submit queue for buffer copy: %d",
+			(int)res);
+
+	res = vkQueueWaitIdle(_graphics_queue);
+	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
+			FAIL,
+			"Failed to wait for queue for buffer copy: %d",
+			(int)res);
+
+	vkFreeCommandBuffers(_vkb_device.device, _command_pool, 1, &command_buffer);
+
+	return OK;
+}
+
+Error Renderer::destroy_buffer(Buffer *buffer) {
+
+	vmaDestroyBuffer(_vma_allocator, buffer->buffer, buffer->alloc);
+	buffer->buffer = VK_NULL_HANDLE;
+	buffer->alloc = nullptr;
+	buffer->size = 0;
 
 	return OK;
 }
@@ -620,7 +722,7 @@ Error Renderer::create_command_buffers() {
 					VK_PIPELINE_BIND_POINT_GRAPHICS,
 					_graphics_pipeline);
 
-			VkBuffer vertex_buffers[] = { _vertex_buffer };
+			VkBuffer vertex_buffers[] = { _vertex_buffer.buffer };
 			VkDeviceSize offsets[] = { 0 };
 			vkCmdBindVertexBuffers(
 					_command_buffers[i], 0, 1, vertex_buffers, offsets);
@@ -732,7 +834,8 @@ void Renderer::destroy() {
 
 	vkb::destroy_swapchain(_vkb_swapchain);
 
-	vmaDestroyBuffer(_vma_allocator, _vertex_buffer, _vertex_buffer_alloc);
+	destroy_buffer(&_vertex_buffer);
+
 	vmaDestroyAllocator(_vma_allocator);
 
 	vkb::destroy_device(_vkb_device);

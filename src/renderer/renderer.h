@@ -95,10 +95,6 @@ protected:
 	VkCommandPool _command_pool;
 	std::vector<VkCommandBuffer> _command_buffers;
 
-	// buffers
-	VkBuffer _vertex_buffer;
-	VmaAllocation _vertex_buffer_alloc;
-
 	// images
 	std::vector<VkImage> _swapchain_images;
 	std::vector<VkImageView> _swapchain_image_views;
@@ -130,6 +126,28 @@ protected:
 	Error recreate_swapchain();
 
 	Error draw_frame();
+
+	// buffers
+
+	struct Buffer {
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation alloc = nullptr;
+		uint32_t size = 0;
+		uint32_t usage = 0;
+		VkDescriptorBufferInfo info;
+		Buffer() {}
+	};
+
+	Buffer _vertex_buffer;
+	Buffer _staging_buffer;
+
+	Error create_buffer(Buffer *buffer,
+			uint32_t size,
+			uint32_t usage,
+			VmaMemoryUsage mapping,
+			VkMemoryPropertyFlags mem_flags);
+	Error copy_buffer(Buffer *src_buffer, Buffer *dst_buffer, uint32_t size);
+	Error destroy_buffer(Buffer *buffer);
 };
 
 } // namespace Opal
