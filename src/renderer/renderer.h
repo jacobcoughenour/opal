@@ -15,19 +15,25 @@
 
 #include <GLFW/glfw3.h>
 
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <optional>
 #include <set>
 #include <vector>
 
+using namespace std;
+using namespace glm;
+
 namespace Opal {
 
 struct Vertex {
-	glm::vec2 pos;
-	glm::vec3 color;
+	vec2 pos;
+	vec3 color;
 	static VkVertexInputBindingDescription get_binding_description() {
 		VkVertexInputBindingDescription desc{};
 		desc.binding = 0;
@@ -36,10 +42,9 @@ struct Vertex {
 		return desc;
 	}
 
-	static std::array<VkVertexInputAttributeDescription, 2>
+	static array<VkVertexInputAttributeDescription, 2>
 	get_attribute_descriptions() {
-		std::array<VkVertexInputAttributeDescription, 2>
-				attribute_descriptions{};
+		array<VkVertexInputAttributeDescription, 2> attribute_descriptions{};
 
 		attribute_descriptions[0].binding = 0;
 		attribute_descriptions[0].location = 0;
@@ -55,10 +60,18 @@ struct Vertex {
 	}
 };
 
-const std::vector<Vertex> vertices = { { { 0.0f, -0.5f },
-											   { 1.0f, 0.0f, 0.0f } },
-	{ { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
-	{ { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } } };
+struct UniformBufferObject {
+	mat4 model;
+	mat4 view;
+	mat4 proj;
+};
+
+const vector<Vertex> vertices = { { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
+	{ { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f } },
+	{ { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } },
+	{ { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f } } };
+
+const vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
 class Renderer {
 
@@ -77,14 +90,20 @@ protected:
 	// vulkan instances
 	vkb::Instance _vkb_instance;
 	vkb::Device _vkb_device;
-	vkb::Swapchain _vkb_swapchain;
 
 	// vk mem allocator
 	VmaAllocator _vma_allocator;
 
+	// swapchain
+	vkb::Swapchain _vkb_swapchain;
+
 	// queues
 	VkQueue _graphics_queue;
 	VkQueue _present_queue;
+
+	VkDescriptorSetLayout _descriptor_set_layout;
+	VkDescriptorPool _descriptor_pool;
+	vector<VkDescriptorSet> _descriptor_sets;
 
 	// graphics pipeline
 	VkPipelineLayout _pipeline_layout;
@@ -93,18 +112,18 @@ protected:
 
 	// commands
 	VkCommandPool _command_pool;
-	std::vector<VkCommandBuffer> _command_buffers;
+	vector<VkCommandBuffer> _command_buffers;
 
 	// images
-	std::vector<VkImage> _swapchain_images;
-	std::vector<VkImageView> _swapchain_image_views;
-	std::vector<VkFramebuffer> _framebuffers;
+	vector<VkImage> _swapchain_images;
+	vector<VkImageView> _swapchain_image_views;
+	vector<VkFramebuffer> _framebuffers;
 
 	// semaphores
-	std::vector<VkSemaphore> _available_semaphores;
-	std::vector<VkSemaphore> _finished_semaphores;
-	std::vector<VkFence> _in_flight_fences;
-	std::vector<VkFence> _image_in_flight;
+	vector<VkSemaphore> _available_semaphores;
+	vector<VkSemaphore> _finished_semaphores;
+	vector<VkFence> _in_flight_fences;
+	vector<VkFence> _images_in_flight;
 
 	size_t _current_frame = 0;
 
@@ -114,16 +133,23 @@ protected:
 	Error create_vk_device();
 	Error create_vma_allocator();
 	Error create_swapchain();
+	Error create_image_views();
 	Error get_queues();
 	Error create_render_pass();
+	Error create_descriptor_set_layout();
 	Error create_graphics_pipeline();
 	Error create_framebuffers();
 	Error create_command_pool();
 	Error create_vertex_buffer();
+	Error create_index_buffer();
+	Error create_uniform_buffers();
+	Error create_descriptor_pool();
+	Error create_descriptor_sets();
 	Error create_command_buffers();
 	Error create_sync_objects();
 
 	Error recreate_swapchain();
+	Error destroy_swapchain();
 
 	Error draw_frame();
 
@@ -139,7 +165,8 @@ protected:
 	};
 
 	Buffer _vertex_buffer;
-	Buffer _staging_buffer;
+	Buffer _index_buffer;
+	vector<Buffer> _uniform_buffers;
 
 	Error create_buffer(Buffer *buffer,
 			uint32_t size,
@@ -147,7 +174,9 @@ protected:
 			VmaMemoryUsage mapping,
 			VkMemoryPropertyFlags mem_flags);
 	Error copy_buffer(Buffer *src_buffer, Buffer *dst_buffer, uint32_t size);
-	Error destroy_buffer(Buffer *buffer);
+	Error destroy_and_free_buffer(Buffer *buffer);
+
+	Error update_uniform_buffer(uint32_t image_index);
 };
 
 } // namespace Opal
