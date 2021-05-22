@@ -25,6 +25,6 @@ endif (WIN32)
 add_definitions(-DVULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
 
 include(${CMAKE_BINARY_DIR}/conan.cmake)
-conan_cmake_run(CONANFILE conanfile.txt BASIC_SETUP)
+conan_cmake_run(CONANFILE conanfile.txt BASIC_SETUP BUILD missing PROFILE clang)
 
 add_subdirectory(src)

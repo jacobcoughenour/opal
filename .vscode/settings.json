@@ -1,5 +1,6 @@
 {
 	"cmake.configureOnOpen": true,
+	"clangd.arguments": ["--header-insertion=never"],
 	"files.associations": {
 		"vector": "cpp",
 		"xstring": "cpp",
