@@ -3,6 +3,19 @@
 	// Hover to view descriptions of existing attributes.
 	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
 	"version": "0.2.0",
+	"inputs": [
+		{
+			"id": "activity",
+			"type": "pickString",
+			"description": "Pick an activity to Launch NSight",
+			"options": [
+				"Frame Debugger",
+				"Frame Profiler",
+				"Generate C++ Capture",
+				"GPU Trace"
+			]
+		}
+	],
 	"configurations": [
 		{
 			"name": "Launch (Windows)",
@@ -35,6 +48,43 @@
 				{
 					"name": "PATH",
 					"value": "$PATH:${command:cmake.launchTargetDirectory}"
+				}
+			],
+			"setupCommands": [
+				{
+					"description": "Enable pretty-printing for gdb",
+					"text": "-enable-pretty-printing",
+					"ignoreFailures": true
+				}
+			],
+			"externalConsole": false
+		},
+		{
+			"name": "NSight Graphics",
+			"type": "cppdbg",
+			"request": "launch",
+			"program": "${env:NSIGHT_PATH}/ngfx.bin",
+			"cwd": "${env:NSIGHT_PATH}",
+			"args": [
+				"--project=${workspaceFolder}/opal.ngfx-proj",
+				"--verbose",
+				"--activity=\"\"${input:activity}\"\"",
+				"--wait-hotkey"
+			],
+			"stopAtEntry": false,
+			"MIMode": "gdb",
+			"environment": [
+				{
+					"name": "PATH",
+					"value": "$PATH:${command:cmake.launchTargetDirectory}"
+				},
+				{
+					"name": "NV_AGORA_PATH",
+					"value": "${env:NSIGHT_PATH}"
+				},
+				{
+					"name": "LD_LIBRARY_PATH",
+					"value": "${env:NSIGHT_PATH}:$LD_LIBRARY_PATH"
 				}
 			],
 			"setupCommands": [

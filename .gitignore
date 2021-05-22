@@ -4,5 +4,11 @@ build/
 out/
 .vs/
 .idea/
+.clangd/
+.cache/
+CppCaptures/
+SpirvTemp/
 
+*.ngfx-gputrace
 log_opal.txt
+compile_commands.json
