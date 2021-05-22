@@ -63,4 +63,12 @@ const std::vector<const char *> VK_REQUIRED_DEVICE_EXTENSIONS = {
 // vulkan device extensions optional to run
 const std::vector<const char *> VK_OPTIONAL_DEVICE_EXTENSIONS = {};
 
+// vulkan device features required to run
+const VkPhysicalDeviceFeatures VK_REQUIRED_DEVICE_FEATURES{
+
+	.samplerAnisotropy = VK_TRUE
+};
+const VkPhysicalDeviceVulkan11Features VK_REQUIRED_DEVICE_FEATURES_11 = {};
+const VkPhysicalDeviceVulkan12Features VK_REQUIRED_DEVICE_FEATURES_12 = {};
+
 #endif // __CONFIG_H__

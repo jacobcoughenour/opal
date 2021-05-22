@@ -16,24 +16,27 @@
 #include <GLFW/glfw3.h>
 
 #define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
+#include <iostream>
 #include <optional>
 #include <set>
+#include <string>
 #include <vector>
-
-using namespace std;
-using namespace glm;
 
 namespace Opal {
 
 struct Vertex {
-	vec2 pos;
-	vec3 color;
+	glm::vec2 pos;
+	glm::vec3 color;
+	glm::vec2 tex_coord;
+
 	static VkVertexInputBindingDescription get_binding_description() {
 		VkVertexInputBindingDescription desc{};
 		desc.binding = 0;
@@ -42,9 +45,10 @@ struct Vertex {
 		return desc;
 	}
 
-	static array<VkVertexInputAttributeDescription, 2>
+	static std::array<VkVertexInputAttributeDescription, 3>
 	get_attribute_descriptions() {
-		array<VkVertexInputAttributeDescription, 2> attribute_descriptions{};
+		std::array<VkVertexInputAttributeDescription, 3>
+				attribute_descriptions{};
 
 		attribute_descriptions[0].binding = 0;
 		attribute_descriptions[0].location = 0;
@@ -56,22 +60,29 @@ struct Vertex {
 		attribute_descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 		attribute_descriptions[1].offset = offsetof(Vertex, color);
 
+		attribute_descriptions[2].binding = 0;
+		attribute_descriptions[2].location = 2;
+		attribute_descriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+		attribute_descriptions[2].offset = offsetof(Vertex, tex_coord);
+
 		return attribute_descriptions;
 	}
 };
 
 struct UniformBufferObject {
-	mat4 model;
-	mat4 view;
-	mat4 proj;
+	alignas(16) glm::mat4 model;
+	alignas(16) glm::mat4 view;
+	alignas(16) glm::mat4 proj;
 };
 
-const vector<Vertex> vertices = { { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
-	{ { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f } },
-	{ { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } },
-	{ { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f } } };
+const std::vector<Vertex> vertices = {
+	{ { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
+	{ { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },
+	{ { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
+	{ { -0.5f, 0.5f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f } }
+};
 
-const vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
+const std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0 };
 
 class Renderer {
 
@@ -103,7 +114,7 @@ protected:
 
 	VkDescriptorSetLayout _descriptor_set_layout;
 	VkDescriptorPool _descriptor_pool;
-	vector<VkDescriptorSet> _descriptor_sets;
+	std::vector<VkDescriptorSet> _descriptor_sets;
 
 	// graphics pipeline
 	VkPipelineLayout _pipeline_layout;
@@ -112,18 +123,18 @@ protected:
 
 	// commands
 	VkCommandPool _command_pool;
-	vector<VkCommandBuffer> _command_buffers;
+	std::vector<VkCommandBuffer> _command_buffers;
 
 	// images
-	vector<VkImage> _swapchain_images;
-	vector<VkImageView> _swapchain_image_views;
-	vector<VkFramebuffer> _framebuffers;
+	std::vector<VkImage> _swapchain_images;
+	std::vector<VkImageView> _swapchain_image_views;
+	std::vector<VkFramebuffer> _framebuffers;
 
 	// semaphores
-	vector<VkSemaphore> _available_semaphores;
-	vector<VkSemaphore> _finished_semaphores;
-	vector<VkFence> _in_flight_fences;
-	vector<VkFence> _images_in_flight;
+	std::vector<VkSemaphore> _available_semaphores;
+	std::vector<VkSemaphore> _finished_semaphores;
+	std::vector<VkFence> _in_flight_fences;
+	std::vector<VkFence> _images_in_flight;
 
 	size_t _current_frame = 0;
 
@@ -140,6 +151,9 @@ protected:
 	Error create_graphics_pipeline();
 	Error create_framebuffers();
 	Error create_command_pool();
+	Error create_texture_image();
+	Error create_texture_image_view();
+	Error create_texture_sampler();
 	Error create_vertex_buffer();
 	Error create_index_buffer();
 	Error create_uniform_buffers();
@@ -238,9 +252,33 @@ protected:
 		Buffer() {}
 	};
 
+	// images
+
+	Image _texture_image;
+	VkSampler _texture_sampler;
+	VkImageView _texture_image_view;
+
+	Error create_image(Image *image,
+			uint32_t width,
+			uint32_t height,
+			VkFormat format,
+			VkImageTiling tiling,
+			VkImageUsageFlags usage,
+			VkMemoryPropertyFlags properties);
+
+	Error create_image_view(
+			VkImageView *image_view, VkImage image, VkFormat format);
+
+	Error transition_image_layout(
+			Image *image, VkImageLayout old_layout, VkImageLayout new_layout);
+
+	Error destroy_and_free_image(Image *image);
+
+	// buffers
+
 	Buffer _vertex_buffer;
 	Buffer _index_buffer;
-	vector<Buffer> _uniform_buffers;
+	std::vector<Buffer> _uniform_buffers;
 
 	Error create_buffer(Buffer *buffer,
 			uint32_t size,
@@ -248,7 +286,16 @@ protected:
 			VmaMemoryUsage mapping,
 			VkMemoryPropertyFlags mem_flags);
 	Error copy_buffer(Buffer *src_buffer, Buffer *dst_buffer, uint32_t size);
+
+	/**
+	 * @brief Deallocates and nullifies the given buffer.
+	 */
 	Error destroy_and_free_buffer(Buffer *buffer);
+
+	/**
+	 * @brief wraps vkCmdCopyBufferToImage and submits it.
+	 */
+	Error copy_buffer_to_image(Buffer *buffer, Image *image);
 
 	Error update_uniform_buffer(uint32_t image_index);
 };

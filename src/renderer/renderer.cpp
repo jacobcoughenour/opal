@@ -1,5 +1,8 @@
 #include "renderer.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 using namespace Opal;
 
 static void glfw_error_callback(int error, const char *description) {
@@ -10,26 +13,31 @@ Error Renderer::initialize() {
 
 	ERR_FAIL_COND_V_MSG(volkInitialize(), FAIL, "Failed to initialize Volk");
 
-	ERR_TRY(create_window);
-	ERR_TRY(create_vk_instance);
-	ERR_TRY(create_surface);
-	ERR_TRY(create_vk_device);
-	ERR_TRY(create_vma_allocator);
-	ERR_TRY(create_swapchain);
-	ERR_TRY(create_image_views);
-	ERR_TRY(get_queues);
-	ERR_TRY(create_render_pass);
-	ERR_TRY(create_descriptor_set_layout);
-	ERR_TRY(create_graphics_pipeline);
-	ERR_TRY(create_framebuffers);
-	ERR_TRY(create_command_pool);
-	ERR_TRY(create_vertex_buffer);
-	ERR_TRY(create_index_buffer);
-	ERR_TRY(create_uniform_buffers);
-	ERR_TRY(create_descriptor_pool);
-	ERR_TRY(create_descriptor_sets);
-	ERR_TRY(create_command_buffers);
-	ERR_TRY(create_sync_objects);
+	ERR_TRY(create_window());
+	ERR_TRY(create_vk_instance());
+	ERR_TRY(create_surface());
+	ERR_TRY(create_vk_device());
+	ERR_TRY(create_vma_allocator());
+	ERR_TRY(create_swapchain());
+	ERR_TRY(create_image_views());
+	ERR_TRY(get_queues());
+	ERR_TRY(create_render_pass());
+	ERR_TRY(create_descriptor_set_layout());
+	ERR_TRY(create_graphics_pipeline());
+	ERR_TRY(create_framebuffers());
+	ERR_TRY(create_command_pool());
+
+	ERR_TRY(create_texture_image());
+	ERR_TRY(create_texture_image_view());
+	ERR_TRY(create_texture_sampler());
+
+	ERR_TRY(create_vertex_buffer());
+	ERR_TRY(create_index_buffer());
+	ERR_TRY(create_uniform_buffers());
+	ERR_TRY(create_descriptor_pool());
+	ERR_TRY(create_descriptor_sets());
+	ERR_TRY(create_command_buffers());
+	ERR_TRY(create_sync_objects());
 
 	_initialized = true;
 
@@ -126,6 +134,11 @@ Error Renderer::create_vk_device() {
 	// add device extensions
 	device_selector.add_required_extensions(VK_REQUIRED_DEVICE_EXTENSIONS);
 	device_selector.add_desired_extensions(VK_OPTIONAL_DEVICE_EXTENSIONS);
+
+	// add device features
+	device_selector.set_required_features(VK_REQUIRED_DEVICE_FEATURES);
+	device_selector.set_required_features_11(VK_REQUIRED_DEVICE_FEATURES_11);
+	device_selector.set_required_features_12(VK_REQUIRED_DEVICE_FEATURES_12);
 
 	// pick compatible device
 	vkb::PhysicalDevice physical_device =
@@ -249,31 +262,13 @@ Error Renderer::create_image_views() {
 	_swapchain_image_views.resize(_swapchain_images.size());
 
 	for (size_t i = 0; i < _swapchain_images.size(); i++) {
-		VkImageViewCreateInfo create_info = {};
-		create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		create_info.image = _swapchain_images[i];
-		create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		create_info.format = _vkb_swapchain.image_format;
-		create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-		create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-		create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-		create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-		create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		create_info.subresourceRange.baseMipLevel = 0;
-		create_info.subresourceRange.levelCount = 1;
-		create_info.subresourceRange.baseArrayLayer = 0;
-		create_info.subresourceRange.layerCount = 1;
-
-		VkResult res = vkCreateImageView(_vkb_device.device,
-				&create_info,
-				nullptr,
-				&_swapchain_image_views[i]);
-
-		ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
+		auto res = create_image_view(&_swapchain_image_views[i],
+				_swapchain_images[i],
+				_vkb_swapchain.image_format);
+		ERR_FAIL_COND_V_MSG(res != OK,
 				FAIL,
-				"Failed to create image view [%d]: %d",
-				i,
-				(int)res);
+				"Failed to create swapchain image view [%d]",
+				i);
 	}
 
 	return OK;
@@ -355,15 +350,25 @@ Error Renderer::create_descriptor_set_layout() {
 	ubo_layout_binding.binding = 0;
 	ubo_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	ubo_layout_binding.descriptorCount = 1;
+	ubo_layout_binding.pImmutableSamplers = nullptr;
 	ubo_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-	// todo for images
-	ubo_layout_binding.pImmutableSamplers = nullptr;
+	VkDescriptorSetLayoutBinding sampler_layout_binding = {};
+	sampler_layout_binding.binding = 1;
+	sampler_layout_binding.descriptorCount = 1;
+	sampler_layout_binding.descriptorType =
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	sampler_layout_binding.pImmutableSamplers = nullptr;
+	// only available for the fragment shader
+	sampler_layout_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	std::array<VkDescriptorSetLayoutBinding, 2> bindings = { ubo_layout_binding,
+		sampler_layout_binding };
 
 	VkDescriptorSetLayoutCreateInfo layout_info = {};
 	layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	layout_info.bindingCount = 1;
-	layout_info.pBindings = &ubo_layout_binding;
+	layout_info.bindingCount = static_cast<uint32_t>(bindings.size());
+	layout_info.pBindings = bindings.data();
 
 	VkResult res = vkCreateDescriptorSetLayout(
 			_vkb_device.device, &layout_info, nullptr, &_descriptor_set_layout);
@@ -492,7 +497,7 @@ Error Renderer::create_graphics_pipeline() {
 	ERR_FAIL_COND_V_MSG(
 			err != VK_SUCCESS, FAIL, "Failed to create pipeline layout");
 
-	vector<VkDynamicState> dynamic_states = { VK_DYNAMIC_STATE_VIEWPORT,
+	std::vector<VkDynamicState> dynamic_states = { VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR };
 
 	VkPipelineDynamicStateCreateInfo dynamic_info = {};
@@ -638,6 +643,317 @@ void Renderer::_debug_end_label(VkCommandBuffer command_buffer) {
 	vkCmdEndDebugUtilsLabelEXT(command_buffer);
 }
 #endif
+
+VkCommandBuffer Renderer::_begin_single_use_command_buffer() {
+
+	VkCommandBufferAllocateInfo alloc_info = {};
+	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	alloc_info.commandPool = _command_pool;
+	alloc_info.commandBufferCount = 1;
+
+	VkCommandBuffer command_buffer;
+	VkResult res = vkAllocateCommandBuffers(
+			_vkb_device.device, &alloc_info, &command_buffer);
+
+	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
+			command_buffer,
+			"Failed to allocate command buffer: %d",
+			(int)res);
+
+	VkCommandBufferBeginInfo begin_info = {};
+	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	res = vkBeginCommandBuffer(command_buffer, &begin_info);
+
+	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
+			command_buffer,
+			"Failed to begin command buffer: %d",
+			(int)res);
+
+	return command_buffer;
+}
+
+void Renderer::_end_and_submit_single_use_command_buffer(
+		VkCommandBuffer command_buffer) {
+
+	VkResult res = vkEndCommandBuffer(command_buffer);
+
+	ERR_FAIL_COND_MSG(
+			res != VK_SUCCESS, "Failed to end command buffer: %d", (int)res);
+
+	VkSubmitInfo submit_info = {};
+	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &command_buffer;
+
+	res = vkQueueSubmit(_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+	ERR_FAIL_COND_MSG(
+			res != VK_SUCCESS, "Failed to submit queue: %d", (int)res);
+
+	res = vkQueueWaitIdle(_graphics_queue);
+	ERR_FAIL_COND_MSG(
+			res != VK_SUCCESS, "Failed to wait for queue: %d", (int)res);
+
+	vkFreeCommandBuffers(_vkb_device.device, _command_pool, 1, &command_buffer);
+}
+
+Error Renderer::create_texture_image() {
+
+	// todo move this to a util class or something
+
+	int width, height, channels;
+	stbi_uc *pixels = stbi_load("assets/textures/texture.jpg",
+			&width,
+			&height,
+			&channels,
+			STBI_rgb_alpha);
+
+	VkDeviceSize image_size = width * height * 4;
+
+	ERR_FAIL_COND_V_MSG(!pixels, FAIL, "Failed to load image texture");
+
+	// transfer the texture pixels to a staging buffer
+
+	Buffer staging_buffer;
+	create_buffer(&staging_buffer,
+			image_size,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VMA_MEMORY_USAGE_CPU_ONLY,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+					VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	void *data;
+	VkResult err = vmaMapMemory(_vma_allocator, staging_buffer.alloc, &data);
+
+	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+			FAIL,
+			"Failed to map staging buffer memory while loading texture image: "
+			"%d",
+			(int)err);
+
+	memcpy(data, pixels, static_cast<size_t>(image_size));
+	vmaUnmapMemory(_vma_allocator, staging_buffer.alloc);
+
+	stbi_image_free(pixels);
+
+	ERR_TRY(create_image(&_texture_image,
+			width,
+			height,
+			VK_FORMAT_R8G8B8A8_SRGB,
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
+
+	transition_image_layout(&_texture_image,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+	copy_buffer_to_image(&staging_buffer, &_texture_image);
+
+	transition_image_layout(&_texture_image,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+	destroy_and_free_buffer(&staging_buffer);
+
+	return OK;
+}
+
+Error Renderer::create_texture_image_view() {
+	return create_image_view(
+			&_texture_image_view, _texture_image.image, _texture_image.format);
+}
+
+Error Renderer::create_texture_sampler() {
+
+	VkSamplerCreateInfo sampler_info = {};
+	sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	sampler_info.magFilter = VK_FILTER_LINEAR;
+	sampler_info.minFilter = VK_FILTER_LINEAR;
+	sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	sampler_info.anisotropyEnable = VK_TRUE;
+	sampler_info.maxAnisotropy =
+			_vkb_device.physical_device.properties.limits.maxSamplerAnisotropy;
+	sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+	sampler_info.unnormalizedCoordinates = VK_FALSE;
+	sampler_info.compareEnable = VK_FALSE;
+	sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	sampler_info.mipLodBias = 0.0f;
+	sampler_info.minLod = 0.0f;
+	sampler_info.maxLod = 0.0f;
+
+	VkResult err = vkCreateSampler(
+			_vkb_device.device, &sampler_info, nullptr, &_texture_sampler);
+
+	ERR_FAIL_COND_V_MSG(
+			err != VK_SUCCESS, FAIL, "Failed to create sampler: %d", (int)err);
+
+	return OK;
+};
+
+Error Renderer::create_image(Image *image,
+		uint32_t width,
+		uint32_t height,
+		VkFormat format,
+		VkImageTiling tiling,
+		VkImageUsageFlags usage,
+		VkMemoryPropertyFlags properties) {
+
+	VkImageCreateInfo image_info = {};
+	image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	image_info.imageType = VK_IMAGE_TYPE_2D;
+	image_info.extent.width = width;
+	image_info.extent.height = height;
+	image_info.extent.depth = 1;
+	image_info.mipLevels = 1;
+	image_info.arrayLayers = 1;
+	image_info.format = format;
+	image_info.tiling = tiling;
+	image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	image_info.usage = usage;
+	image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_info.flags = 0;
+
+	VmaAllocationCreateInfo alloc_info = {};
+	alloc_info.requiredFlags = 0;
+	alloc_info.preferredFlags = 0;
+	alloc_info.flags = 0;
+	alloc_info.pool = nullptr;
+	// alloc_info.pUserData = "nullptr".c_str();
+	// alloc_info.memoryTypeBits = properties;
+	// todo do we need usage info here?
+	alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+	VkResult err = vmaCreateImage(_vma_allocator,
+			&image_info,
+			&alloc_info,
+			&image->image,
+			&image->alloc,
+			nullptr);
+
+	ERR_FAIL_COND_V_MSG(
+			err != VK_SUCCESS, FAIL, "Failed to allocate image: %d", (int)err);
+
+	image->extent = image_info.extent;
+	image->format = format;
+	image->tiling = tiling;
+	image->usage = usage;
+	image->properties = properties;
+
+	return OK;
+}
+
+Error Renderer::create_image_view(
+		VkImageView *image_view, VkImage image, VkFormat format) {
+
+	VkImageViewCreateInfo view_info = {};
+	view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	view_info.image = image;
+	view_info.format = format;
+	view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	view_info.subresourceRange.baseMipLevel = 0;
+	view_info.subresourceRange.levelCount = 1;
+	view_info.subresourceRange.baseArrayLayer = 0;
+	view_info.subresourceRange.layerCount = 1;
+
+	VkResult err = vkCreateImageView(
+			_vkb_device.device, &view_info, nullptr, image_view);
+
+	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
+			FAIL,
+			"Failed to create image view: %d",
+			(int)err);
+
+	return OK;
+}
+
+Error Renderer::transition_image_layout(
+		Image *image, VkImageLayout old_layout, VkImageLayout new_layout) {
+
+	VkImageMemoryBarrier barrier = {};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = old_layout;
+	barrier.newLayout = new_layout;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = image->image;
+	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+
+	VkPipelineStageFlags src_stage;
+	VkPipelineStageFlags dst_stage;
+
+	if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+			new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+		barrier.srcAccessMask = 0;
+		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+		src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	} else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+			   new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	} else {
+		LOG_ERR("Unsupported layout transition");
+		return FAIL;
+	}
+
+	// access table
+	// https://www.khronos.org/registry/vulkan/specs/1.0/html/vkspec.html#synchronization-access-types-supported
+
+	VK_SUBMIT_SINGLE_CMD_OR_FAIL(vkCmdPipelineBarrier,
+			src_stage,
+			dst_stage,
+			0,
+			0,
+			nullptr,
+			0,
+			nullptr,
+			1,
+			&barrier);
+
+	return OK;
+}
+
+Error Renderer::copy_buffer_to_image(Buffer *buffer, Image *image) {
+
+	// define the region we are copying
+	VkBufferImageCopy region = {};
+	region.bufferOffset = 0;
+	region.bufferRowLength = 0;
+	region.bufferImageHeight = 0;
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
+	region.imageOffset = { 0, 0, 0 };
+	region.imageExtent = image->extent;
+
+	VK_SUBMIT_SINGLE_CMD_OR_FAIL(vkCmdCopyBufferToImage,
+			buffer->buffer,
+			image->image,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1,
+			// btw multiple regions can be used if we need that in the future.
+			&region);
+
+	return OK;
+}
+
 Error Renderer::create_vertex_buffer() {
 
 	uint32_t size = sizeof(vertices[0]) * vertices.size();
@@ -736,14 +1052,19 @@ Error Renderer::create_uniform_buffers() {
 
 Error Renderer::create_descriptor_pool() {
 
-	VkDescriptorPoolSize pool_size = {};
-	pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	pool_size.descriptorCount = static_cast<uint32_t>(_swapchain_images.size());
+	std::array<VkDescriptorPoolSize, 2> pool_sizes{};
+	pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	pool_sizes[0].descriptorCount =
+			static_cast<uint32_t>(_swapchain_images.size());
+
+	pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	pool_sizes[1].descriptorCount =
+			static_cast<uint32_t>(_swapchain_images.size());
 
 	VkDescriptorPoolCreateInfo pool_info = {};
 	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	pool_info.poolSizeCount = 1;
-	pool_info.pPoolSizes = &pool_size;
+	pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
+	pool_info.pPoolSizes = pool_sizes.data();
 	pool_info.maxSets = static_cast<uint32_t>(_swapchain_images.size());
 
 	VkResult res = vkCreateDescriptorPool(
@@ -759,7 +1080,7 @@ Error Renderer::create_descriptor_pool() {
 
 Error Renderer::create_descriptor_sets() {
 
-	vector<VkDescriptorSetLayout> layouts(
+	std::vector<VkDescriptorSetLayout> layouts(
 			_swapchain_images.size(), _descriptor_set_layout);
 	VkDescriptorSetAllocateInfo alloc_info = {};
 	alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -784,17 +1105,35 @@ Error Renderer::create_descriptor_sets() {
 		buffer_info.offset = 0;
 		buffer_info.range = sizeof(UniformBufferObject);
 
-		VkWriteDescriptorSet descriptor_write = {};
-		descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptor_write.dstSet = _descriptor_sets[i];
-		descriptor_write.dstBinding = 0;
-		descriptor_write.dstArrayElement = 0;
-		descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptor_write.descriptorCount = 1;
-		descriptor_write.pBufferInfo = &buffer_info;
+		VkDescriptorImageInfo image_info = {};
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		image_info.imageView = _texture_image_view;
+		image_info.sampler = _texture_sampler;
 
-		vkUpdateDescriptorSets(
-				_vkb_device.device, 1, &descriptor_write, 0, nullptr);
+		std::array<VkWriteDescriptorSet, 2> descriptor_writes{};
+
+		descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptor_writes[0].dstSet = _descriptor_sets[i];
+		descriptor_writes[0].dstBinding = 0;
+		descriptor_writes[0].dstArrayElement = 0;
+		descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptor_writes[0].descriptorCount = 1;
+		descriptor_writes[0].pBufferInfo = &buffer_info;
+
+		descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptor_writes[1].dstSet = _descriptor_sets[i];
+		descriptor_writes[1].dstBinding = 1;
+		descriptor_writes[1].dstArrayElement = 0;
+		descriptor_writes[1].descriptorType =
+				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		descriptor_writes[1].descriptorCount = 1;
+		descriptor_writes[1].pImageInfo = &image_info;
+
+		vkUpdateDescriptorSets(_vkb_device.device,
+				static_cast<uint32_t>(descriptor_writes.size()),
+				descriptor_writes.data(),
+				0,
+				nullptr);
 	}
 
 	return OK;
@@ -802,24 +1141,21 @@ Error Renderer::create_descriptor_sets() {
 
 Error Renderer::update_uniform_buffer(uint32_t image_index) {
 
-	// todo
-	// https://vulkan-tutorial.com/en/Uniform_buffers/Descriptor_layout_and_buffer
-	// https://github.com/godotengine/godot/blob/92c04fa727e3fc507e31c1bce88beeceb98fb06a/drivers/vulkan/rendering_device_vulkan.cpp#L1580
+	static auto start_time = std::chrono::high_resolution_clock::now();
+	auto current_time = std::chrono::high_resolution_clock::now();
 
-	static auto start_time = chrono::high_resolution_clock::now();
-	auto current_time = chrono::high_resolution_clock::now();
-
-	float time = chrono::duration<float, chrono::seconds::period>(
+	float time = std::chrono::duration<float, std::chrono::seconds::period>(
 			current_time - start_time)
 						 .count();
 
 	UniformBufferObject ubo = {};
-	ubo.model =
-			rotate(mat4(1.0f), time * radians(90.0f), vec3(0.0f, 0.0f, 1.0f));
-	ubo.view = lookAt(vec3(2.0f, 2.0f, 2.0f),
-			vec3(0.0f, 0.0f, 0.0f),
-			vec3(0.0f, 0.0f, 1.0f));
-	ubo.proj = perspective(radians(45.0f),
+	ubo.model = glm::rotate(glm::mat4(1.0f),
+			time * glm::radians(90.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f));
+	ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f));
+	ubo.proj = glm::perspective(glm::radians(45.0f),
 			_vkb_swapchain.extent.width / (float)_vkb_swapchain.extent.height,
 			0.1f,
 			10.0f);
@@ -873,59 +1209,15 @@ Error Renderer::create_buffer(Buffer *buffer,
 Error Renderer::copy_buffer(
 		Buffer *src_buffer, Buffer *dst_buffer, uint32_t size) {
 
-	VkCommandBufferAllocateInfo alloc_info = {};
-	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	alloc_info.commandPool = _command_pool;
-	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	alloc_info.commandBufferCount = 1;
+	// create a command buffer
+	VkBufferCopy copy_region = {};
+	copy_region.size = size;
 
-	VkCommandBuffer command_buffer;
-	VkResult res = vkAllocateCommandBuffers(
-			_vkb_device.device, &alloc_info, &command_buffer);
-
-	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
-			FAIL,
-			"Failed to allocate command buffer for buffer copy: %d",
-			(int)res);
-
-	VkCommandBufferBeginInfo begin_info = {};
-	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-	res = vkBeginCommandBuffer(command_buffer, &begin_info);
-	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
-			FAIL,
-			"Failed to begin command buffer for buffer copy: %d",
-			(int)res);
-	{
-		VkBufferCopy copy_region = {};
-		copy_region.size = size;
-		vkCmdCopyBuffer(command_buffer,
-				src_buffer->buffer,
-				dst_buffer->buffer,
-				1,
-				&copy_region);
-	}
-	vkEndCommandBuffer(command_buffer);
-
-	VkSubmitInfo submit_info = {};
-	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submit_info.commandBufferCount = 1;
-	submit_info.pCommandBuffers = &command_buffer;
-
-	res = vkQueueSubmit(_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
-			FAIL,
-			"Failed to submit queue for buffer copy: %d",
-			(int)res);
-
-	res = vkQueueWaitIdle(_graphics_queue);
-	ERR_FAIL_COND_V_MSG(res != VK_SUCCESS,
-			FAIL,
-			"Failed to wait for queue for buffer copy: %d",
-			(int)res);
-
-	vkFreeCommandBuffers(_vkb_device.device, _command_pool, 1, &command_buffer);
+	VK_SUBMIT_SINGLE_CMD_OR_FAIL(vkCmdCopyBuffer,
+			src_buffer->buffer,
+			dst_buffer->buffer,
+			1,
+			&copy_region);
 
 	return OK;
 }
@@ -933,9 +1225,22 @@ Error Renderer::copy_buffer(
 Error Renderer::destroy_and_free_buffer(Buffer *buffer) {
 
 	vmaDestroyBuffer(_vma_allocator, buffer->buffer, buffer->alloc);
+
+	// clean up the Buffer struct
 	buffer->buffer = VK_NULL_HANDLE;
 	buffer->alloc = nullptr;
 	buffer->size = 0;
+
+	return OK;
+}
+
+Error Renderer::destroy_and_free_image(Image *image) {
+
+	vmaDestroyImage(_vma_allocator, image->image, image->alloc);
+
+	// clean up the image struct
+	image->image = VK_NULL_HANDLE;
+	image->alloc = nullptr;
 
 	return OK;
 }
@@ -1170,6 +1475,11 @@ void Renderer::destroy() {
 	vkDeviceWaitIdle(_vkb_device.device);
 
 	destroy_swapchain();
+
+	vkDestroySampler(_vkb_device.device, _texture_sampler, nullptr);
+	vkDestroyImageView(_vkb_device.device, _texture_image_view, nullptr);
+
+	destroy_and_free_image(&_texture_image);
 
 	vkDestroyDescriptorSetLayout(
 			_vkb_device.device, _descriptor_set_layout, nullptr);

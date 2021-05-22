@@ -25,7 +25,7 @@ static VkShaderModule createShaderModule(VkDevice device,
 	VkShaderModule shader_module;
 	if (vkCreateShaderModule(device, &shader_info, nullptr, &shader_module) !=
 			VK_SUCCESS) {
-		LOG_ERR("Failed to create shader module: %s", name);
+		LOG_ERR("Failed to create shader module: %s", name.c_str());
 		return VK_NULL_HANDLE;
 	}
 	return shader_module;
