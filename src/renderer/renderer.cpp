@@ -94,7 +94,7 @@ Error Renderer::create_vk_instance() {
 	ERR_FAIL_COND_V_MSG(!instance_builder_return,
 			FAIL,
 			"Failed to create Vulkan instance: %s",
-			instance_builder_return.error().message());
+			instance_builder_return.error().message().c_str());
 
 	// get the final vulkan instance
 	_vkb_instance = instance_builder_return.value();
@@ -143,7 +143,7 @@ Error Renderer::create_vk_device() {
 	ERR_FAIL_COND_V_MSG(!device_builder_return,
 			FAIL,
 			"Failed to create Vulkan device: %s",
-			device_builder_return.error().message());
+			device_builder_return.error().message().c_str());
 
 	// get final vulkan device
 	_vkb_device = device_builder_return.value();
@@ -230,7 +230,7 @@ Error Renderer::create_swapchain() {
 
 	if (!swap_ret) {
 		LOG_ERR("Failed to create Vulkan swapchain: %s",
-				swap_ret.error().message());
+				swap_ret.error().message().c_str());
 		_vkb_swapchain.swapchain = VK_NULL_HANDLE;
 		return FAIL;
 	}
@@ -286,7 +286,7 @@ Error Renderer::get_queues() {
 	ERR_FAIL_COND_V_MSG(!graphics_queue.has_value(),
 			FAIL,
 			"Failed to get graphics queue: %s",
-			graphics_queue.error().message());
+			graphics_queue.error().message().c_str());
 	_graphics_queue = graphics_queue.value();
 
 	// get presentation queue
@@ -294,7 +294,7 @@ Error Renderer::get_queues() {
 	ERR_FAIL_COND_V_MSG(!present_queue.has_value(),
 			FAIL,
 			"Failed to get presentation queue: %s",
-			present_queue.error().message());
+			present_queue.error().message().c_str());
 	_present_queue = present_queue.value();
 
 	return OK;
@@ -582,6 +582,62 @@ Error Renderer::create_command_pool() {
 	return OK;
 }
 
+#ifdef USE_DEBUG_UTILS
+void Renderer::_debug_object_name(
+		VkObjectType type, uint64_t handle, const char *name) {
+
+	VkDebugUtilsObjectNameInfoEXT name_info = {};
+	name_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+	name_info.pNext = NULL;
+	name_info.objectType = type;
+	name_info.objectHandle = handle;
+	name_info.pObjectName = name;
+
+	vkSetDebugUtilsObjectNameEXT(_vkb_device.device, &name_info);
+}
+
+void Renderer::_debug_begin_label(VkCommandBuffer command_buffer,
+		const char *name,
+		float r,
+		float g,
+		float b,
+		float a) {
+
+	VkDebugUtilsLabelEXT label_info = {};
+	label_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+	label_info.pNext = NULL;
+	label_info.pLabelName = name;
+	label_info.color[0] = r;
+	label_info.color[1] = g;
+	label_info.color[2] = b;
+	label_info.color[3] = a;
+
+	vkCmdBeginDebugUtilsLabelEXT(command_buffer, &label_info);
+}
+
+void Renderer::_debug_insert_label(VkCommandBuffer command_buffer,
+		const char *name,
+		float r,
+		float g,
+		float b,
+		float a) {
+
+	VkDebugUtilsLabelEXT label_info = {};
+	label_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+	label_info.pNext = NULL;
+	label_info.pLabelName = name;
+	label_info.color[0] = r;
+	label_info.color[1] = g;
+	label_info.color[2] = b;
+	label_info.color[3] = a;
+
+	vkCmdInsertDebugUtilsLabelEXT(command_buffer, &label_info);
+}
+
+void Renderer::_debug_end_label(VkCommandBuffer command_buffer) {
+	vkCmdEndDebugUtilsLabelEXT(command_buffer);
+}
+#endif
 Error Renderer::create_vertex_buffer() {
 
 	uint32_t size = sizeof(vertices[0]) * vertices.size();
@@ -901,6 +957,11 @@ Error Renderer::create_command_buffers() {
 			err != VK_SUCCESS, FAIL, "Failed to allocate command buffers");
 
 	for (size_t i = 0; i < _command_buffers.size(); i++) {
+
+		VK_DEBUG_OBJECT_NAME(VK_OBJECT_TYPE_COMMAND_BUFFER,
+				(uint64_t)_command_buffers[i],
+				("Command Buffer " + std::to_string(i)).c_str());
+
 		VkCommandBufferBeginInfo begin_info = {};
 		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -934,6 +995,9 @@ Error Renderer::create_command_buffers() {
 		scissor.offset = { 0, 0 };
 		scissor.extent = _vkb_swapchain.extent;
 
+		VK_DEBUG_BEGIN_LABEL(
+				_command_buffers[i], "render pass", 0.0f, 0.0f, 1.0f, 1.0f);
+
 		vkCmdSetViewport(_command_buffers[i], 0, 1, &viewport);
 		vkCmdSetScissor(_command_buffers[i], 0, 1, &scissor);
 		vkCmdBeginRenderPass(_command_buffers[i],
@@ -964,6 +1028,13 @@ Error Renderer::create_command_buffers() {
 					0,
 					nullptr);
 
+			VK_DEBUG_INSERT_LABEL(_command_buffers[i],
+					"draw indexed",
+					1.0f,
+					0.0f,
+					1.0f,
+					1.0f);
+
 			vkCmdDrawIndexed(_command_buffers[i],
 					static_cast<uint32_t>(indices.size()),
 					1,
@@ -972,6 +1043,8 @@ Error Renderer::create_command_buffers() {
 					0);
 		}
 		vkCmdEndRenderPass(_command_buffers[i]);
+
+		VK_DEBUG_END_LABEL(_command_buffers[i]);
 
 		err = vkEndCommandBuffer(_command_buffers[i]);
 

@@ -13,11 +13,11 @@ enum Error { OK, FAIL };
 #define FAIL Error::FAIL
 
 /**
- * Wraps function call. returns value if != OK.
+ * if val != OK, log err and return it
  */
-#define ERR_TRY(f)                                                             \
+#define ERR_TRY(val)                                                           \
 	if (true) {                                                                \
-		auto ret = f();                                                        \
+		auto ret = val;                                                        \
 		ERR_FAIL_COND_V(ret != OK, ret);                                       \
 	} else                                                                     \
 		((void)0)

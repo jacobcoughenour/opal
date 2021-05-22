@@ -19,6 +19,9 @@
 // enables vulkan validation layers
 #define USE_VALIDATION_LAYERS
 
+// enables debug utils for labels
+#define USE_DEBUG_UTILS
+
 // required vulkan api version
 #define VK_REQUIRED_API_VERSION VK_API_VERSION_1_1
 
@@ -27,6 +30,9 @@
 
 // vulkan instance extensions
 const std::vector<const char *> VK_INSTANCE_EXTENSIONS = {
+#ifdef USE_DEBUG_UTILS
+	VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+#endif
 	VK_KHR_SURFACE_EXTENSION_NAME,
 #ifdef WIN32
 	VK_KHR_WIN32_SURFACE_EXTENSION_NAME,

@@ -148,12 +148,86 @@ protected:
 	Error create_command_buffers();
 	Error create_sync_objects();
 
+	Error draw_frame();
+
 	Error recreate_swapchain();
 	Error destroy_swapchain();
 
-	Error draw_frame();
+#ifdef USE_DEBUG_UTILS
+#define VK_DEBUG_OBJECT_NAME(type, handle, name)                               \
+	_debug_object_name(type, handle, name)
+	void _debug_object_name(
+			VkObjectType type, uint64_t handle, const char *name);
+#define VK_DEBUG_BEGIN_LABEL(command_buffer, name, r, g, b, a)                 \
+	_debug_begin_label(command_buffer, name, r, g, b, a)
+	void _debug_begin_label(VkCommandBuffer command_buffer,
+			const char *name,
+			float r,
+			float g,
+			float b,
+			float a);
+#define VK_DEBUG_INSERT_LABEL(command_buffer, name, r, g, b, a)                \
+	_debug_insert_label(command_buffer, name, r, g, b, a)
+	void _debug_insert_label(VkCommandBuffer command_buffer,
+			const char *name,
+			float r,
+			float g,
+			float b,
+			float a);
+#define VK_DEBUG_END_LABEL(command_buffer) _debug_end_label(command_buffer)
+	void _debug_end_label(VkCommandBuffer command_buffer);
+#else
+#define VK_DEBUG_OBJECT_NAME(type, handle, name) ((void)0)
+#define VK_DEBUG_BEGIN_LABEL(command_buffer, name, r, g, b, a) ((void)0)
+#define VK_DEBUG_INSERT_LABEL(command_buffer, name, r, g, b, a) ((void)0)
+#define VK_DEBUG_END_LABEL(command_buffer) ((void)0)
+#endif
 
-	// buffers
+/**
+ * @brief Utility macro for running a single time command.
+ *
+ * This creates a single use command buffer, adds your command to it, then
+ * submits the command to Vulkan. This works with all the `vkCmd` prefixed
+ * Vulkan functions since their first param is VkCommandBuffer. So the
+ * `__VA_ARGS__` match the original function's parameters without the first
+ * command buffer parameter.
+ */
+#define VK_SUBMIT_SINGLE_CMD_OR_FAIL(vkCmd, ...)                               \
+	/* create single-use command buffer */                                     \
+	VkCommandBuffer cmd_buf = _begin_single_use_command_buffer();              \
+	/* null check the command buffer */                                        \
+	ERR_FAIL_COND_V_MSG(!cmd_buf,                                              \
+			FAIL,                                                              \
+			"Failed to create command buffer for single time command");        \
+	/* insert command in command buffer */                                     \
+	vkCmd(cmd_buf, __VA_ARGS__);                                               \
+	/* end buffer and submit command */                                        \
+	_end_and_submit_single_use_command_buffer(cmd_buf);                        \
+	((void)0)
+
+	/**
+	 * Allocates a "single-use" command buffer for running a command.
+	 * Use the `VK_SUBMIT_SINGLE_CMD` macro instead.
+	 */
+	VkCommandBuffer _begin_single_use_command_buffer();
+
+	/**
+	 * Ends and deallocates a "single-use" command buffer.
+	 * Use the `VK_SUBMIT_SINGLE_CMD` macro instead.
+	 */
+	void _end_and_submit_single_use_command_buffer(
+			VkCommandBuffer command_buffer);
+
+	struct Image {
+		VkImage image = VK_NULL_HANDLE;
+		VmaAllocation alloc = nullptr;
+		VkExtent3D extent;
+		VkFormat format = VK_FORMAT_UNDEFINED;
+		VkImageTiling tiling = VK_IMAGE_TILING_MAX_ENUM;
+		VkImageUsageFlags usage = VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM;
+		VkMemoryPropertyFlags properties =
+				VK_MEMORY_PROPERTY_FLAG_BITS_MAX_ENUM;
+	};
 
 	struct Buffer {
 		VkBuffer buffer = VK_NULL_HANDLE;
