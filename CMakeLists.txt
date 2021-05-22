@@ -11,7 +11,7 @@ message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-c
 endif()
 
 SET(VULKAN_TARGET_ENV vulkan1.1)
-SET(SPIRV_TARGET_ENV spv1.4)
+SET(SPIRV_TARGET_ENV spirv1.4)
 
 if (WIN32)
     add_definitions(-DVK_USE_PLATFORM_WIN32_KHR)
