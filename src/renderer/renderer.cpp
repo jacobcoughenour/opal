@@ -261,7 +261,8 @@ Error Renderer::create_swapchain() {
 
 Error Renderer::create_image_views() {
 
-	_swapchain_image_views.resize(_swapchain_images.size());
+	_swapchain_images	   = _vkb_swapchain.get_images().value();
+	_swapchain_image_views = _vkb_swapchain.get_image_views().value();
 
 	for (size_t i = 0; i < _swapchain_images.size(); i++) {
 		_swapchain_image_views[i] = create_image_view(
