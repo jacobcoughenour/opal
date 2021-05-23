@@ -18,9 +18,11 @@
 #define GLM_FORCE_RADIANS
 // glm uses [-1, 1] for depth but we need [0, 1] for vulkan
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
+// #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/hash.hpp>
 
 #include <array>
 #include <chrono>
@@ -30,6 +32,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Opal {
@@ -70,6 +73,11 @@ struct Vertex {
 
 		return attribute_descriptions;
 	}
+
+	bool operator==(const Vertex &other) const {
+		return pos == other.pos && color == other.color &&
+			   tex_coord == other.tex_coord;
+	}
 };
 
 struct UniformBufferObject {
@@ -78,21 +86,8 @@ struct UniformBufferObject {
 	alignas(16) glm::mat4 proj;
 };
 
-const std::vector<Vertex> vertices = {
-	{ { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
-	{ { 0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },
-	{ { 0.5f, 0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
-	{ { -0.5f, 0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } },
-
-	{ { -0.5f, -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
-	{ { 0.5f, -0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },
-	{ { 0.5f, 0.5f, -0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
-	{ { -0.5f, 0.5f, -0.5f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } },
-};
-
-const std::vector<uint16_t> indices = {
-	0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4,
-};
+const std::string MODEL_PATH   = "assets/models/viking_room.obj";
+const std::string TEXTURE_PATH = "assets/models/viking_room.png";
 
 class Renderer {
 
@@ -103,6 +98,10 @@ public:
 
 protected:
 	bool _initialized;
+
+	// model stuff
+	std::vector<Vertex> _vertices;
+	std::vector<uint32_t> _indices;
 
 	// window stuff
 	GLFWwindow *_window;
@@ -165,6 +164,7 @@ protected:
 	Error create_texture_image();
 	Error create_texture_image_view();
 	Error create_texture_sampler();
+	Error load_model();
 	Error create_vertex_buffer();
 	Error create_index_buffer();
 	Error create_uniform_buffers();
@@ -327,5 +327,16 @@ protected:
 };
 
 } // namespace Opal
+
+namespace std {
+template <> struct hash<Opal::Vertex> {
+	size_t operator()(Opal::Vertex const &vertex) const {
+		return ((hash<glm::vec3>()(vertex.pos) ^
+				 (hash<glm::vec3>()(vertex.color) << 1)) >>
+				1) ^
+			   (hash<glm::vec2>()(vertex.tex_coord) << 1);
+	}
+};
+} // namespace std
 
 #endif // __RENDERER_H__

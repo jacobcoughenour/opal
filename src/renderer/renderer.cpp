@@ -3,6 +3,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
+
 using namespace Opal;
 
 static void glfw_error_callback(int error, const char *description) {
@@ -32,8 +35,11 @@ Error Renderer::initialize() {
 	ERR_TRY(create_texture_image_view());
 	ERR_TRY(create_texture_sampler());
 
+	ERR_TRY(load_model());
+
 	ERR_TRY(create_vertex_buffer());
 	ERR_TRY(create_index_buffer());
+
 	ERR_TRY(create_uniform_buffers());
 	ERR_TRY(create_descriptor_pool());
 	ERR_TRY(create_descriptor_sets());
@@ -788,11 +794,7 @@ Error Renderer::create_texture_image() {
 
 	int width, height, channels;
 	stbi_uc *pixels = stbi_load(
-			"assets/textures/texture.jpg",
-			&width,
-			&height,
-			&channels,
-			STBI_rgb_alpha);
+			TEXTURE_PATH.c_str(), &width, &height, &channels, STBI_rgb_alpha);
 
 	VkDeviceSize image_size = width * height * 4;
 
@@ -1085,9 +1087,53 @@ Error Renderer::copy_buffer_to_image(Buffer *buffer, Image *image) {
 	return OK;
 }
 
+Error Renderer::load_model() {
+
+	tinyobj::attrib_t attrib;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+	std::string err;
+
+	bool res = tinyobj::LoadObj(
+			&attrib, &shapes, &materials, &err, MODEL_PATH.c_str());
+
+	ERR_FAIL_COND_V_MSG(!res, FAIL, "Failed to load model: %s", err.c_str());
+
+	std::unordered_map<Vertex, uint32_t> unique_vertices {};
+
+	for (const auto &shape : shapes) {
+		for (const auto &index : shape.mesh.indices) {
+			Vertex vertex {
+				.pos = {
+					attrib.vertices[3 * index.vertex_index + 0],
+					attrib.vertices[3 * index.vertex_index + 1],
+					attrib.vertices[3 * index.vertex_index + 2],
+				},
+				.color = {
+					1.0f, 1.0f, 1.0f
+				},
+				.tex_coord = {
+					attrib.texcoords[2 * index.texcoord_index + 0],
+					1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
+				},
+			};
+
+			if (unique_vertices.count(vertex) == 0) {
+				unique_vertices[vertex] =
+						static_cast<uint32_t>(_vertices.size());
+				_vertices.push_back(vertex);
+			}
+
+			_indices.push_back(unique_vertices[vertex]);
+		}
+	}
+
+	return OK;
+}
+
 Error Renderer::create_vertex_buffer() {
 
-	uint32_t size = sizeof(vertices[0]) * vertices.size();
+	uint32_t size = sizeof(_vertices[0]) * _vertices.size();
 
 	Buffer staging_buffer;
 
@@ -1108,7 +1154,7 @@ Error Renderer::create_vertex_buffer() {
 			"Failed to map staging buffer memory: %d",
 			(int)err);
 
-	memcpy(data, vertices.data(), (size_t)size);
+	memcpy(data, _vertices.data(), (size_t)size);
 	vmaUnmapMemory(_vma_allocator, staging_buffer.alloc);
 
 	create_buffer(
@@ -1127,7 +1173,7 @@ Error Renderer::create_vertex_buffer() {
 }
 
 Error Renderer::create_index_buffer() {
-	uint32_t size = sizeof(indices[0]) * indices.size();
+	uint32_t size = sizeof(_indices[0]) * _indices.size();
 
 	Buffer staging_buffer;
 
@@ -1148,7 +1194,7 @@ Error Renderer::create_index_buffer() {
 			"Failed to map staging buffer memory: %d",
 			(int)err);
 
-	memcpy(data, indices.data(), (size_t)size);
+	memcpy(data, _indices.data(), (size_t)size);
 	vmaUnmapMemory(_vma_allocator, staging_buffer.alloc);
 
 	create_buffer(
@@ -1493,7 +1539,7 @@ Error Renderer::create_command_buffers() {
 					_command_buffers[i],
 					_index_buffer.buffer,
 					0,
-					VK_INDEX_TYPE_UINT16);
+					VK_INDEX_TYPE_UINT32);
 
 			vkCmdBindDescriptorSets(
 					_command_buffers[i],
@@ -1515,7 +1561,7 @@ Error Renderer::create_command_buffers() {
 
 			vkCmdDrawIndexed(
 					_command_buffers[i],
-					static_cast<uint32_t>(indices.size()),
+					static_cast<uint32_t>(_indices.size()),
 					1,
 					0,
 					0,
