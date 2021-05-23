@@ -24,8 +24,9 @@ Error Renderer::initialize() {
 	ERR_TRY(create_render_pass());
 	ERR_TRY(create_descriptor_set_layout());
 	ERR_TRY(create_graphics_pipeline());
-	ERR_TRY(create_framebuffers());
 	ERR_TRY(create_command_pool());
+	ERR_TRY(create_depth_resources());
+	ERR_TRY(create_framebuffers());
 
 	ERR_TRY(create_texture_image());
 	ERR_TRY(create_texture_image_view());
@@ -54,6 +55,7 @@ Error Renderer::create_window() {
 
 	// disable automatic OpenGL context creation from glfw
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 	// create window
 	_window =
@@ -82,7 +84,7 @@ Error Renderer::create_vk_instance() {
 					VkDebugUtilsMessageTypeFlagsEXT messageType,
 					const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
 					void *pUserData) -> VkBool32 {
-				LOG("VK [%s: %s] %s",
+				LOG("VK [%s: %s]\n\t%s\n",
 						vkb::to_string_message_severity(messageSeverity),
 						vkb::to_string_message_type(messageType),
 						pCallbackData->pMessage);
@@ -237,7 +239,6 @@ Error Renderer::create_swapchain() {
 	// (re)build swapchain
 	vkb::SwapchainBuilder swapchain_builder{ _vkb_device };
 	auto swap_ret = swapchain_builder
-							.set_old_swapchain(_vkb_swapchain)
 							// swapchain settings
 							.build();
 
@@ -247,9 +248,6 @@ Error Renderer::create_swapchain() {
 		_vkb_swapchain.swapchain = VK_NULL_HANDLE;
 		return FAIL;
 	}
-
-	// destroy old swapchain
-	vkb::destroy_swapchain(_vkb_swapchain);
 
 	// get final swapchain
 	_vkb_swapchain = swap_ret.value();
@@ -262,13 +260,9 @@ Error Renderer::create_image_views() {
 	_swapchain_image_views.resize(_swapchain_images.size());
 
 	for (size_t i = 0; i < _swapchain_images.size(); i++) {
-		auto res = create_image_view(&_swapchain_image_views[i],
-				_swapchain_images[i],
-				_vkb_swapchain.image_format);
-		ERR_FAIL_COND_V_MSG(res != OK,
-				FAIL,
-				"Failed to create swapchain image view [%d]",
-				i);
+		_swapchain_image_views[i] = create_image_view(_swapchain_images[i],
+				_vkb_swapchain.image_format,
+				VK_IMAGE_ASPECT_COLOR_BIT);
 	}
 
 	return OK;
@@ -311,24 +305,49 @@ Error Renderer::create_render_pass() {
 	color_attachment_ref.attachment	= 0;
 	color_attachment_ref.layout		= VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+	VkAttachmentDescription depth_attachment = {};
+	depth_attachment.format			= find_depth_format();
+	depth_attachment.samples		= VK_SAMPLE_COUNT_1_BIT;
+	depth_attachment.loadOp			= VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depth_attachment.storeOp		= VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depth_attachment.stencilLoadOp	= VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	depth_attachment.stencilStoreOp	= VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depth_attachment.initialLayout	= VK_IMAGE_LAYOUT_UNDEFINED;
+	depth_attachment.finalLayout	= 
+							VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	
+
+	VkAttachmentReference depth_attachment_ref = {};
+	depth_attachment_ref.attachment	= 1;
+	depth_attachment_ref.layout		= 
+							VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint		= VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount	= 1;
 	subpass.pColorAttachments		= &color_attachment_ref;
+	subpass.pDepthStencilAttachment	= &depth_attachment_ref;
 
 	VkSubpassDependency dependency = {};
 	dependency.srcSubpass		= VK_SUBPASS_EXTERNAL;
 	dependency.dstSubpass		= 0;
-	dependency.srcStageMask		= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.srcStageMask		= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+								  | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 	dependency.srcAccessMask	= 0;
-	dependency.dstStageMask		= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependency.dstAccessMask	= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT
-								  | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependency.dstStageMask		= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+								  | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependency.dstAccessMask	= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+								 | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	std::array<VkAttachmentDescription, 2> attachments = {
+		color_attachment,
+		depth_attachment
+	};
 
 	VkRenderPassCreateInfo pass_info = {};
 	pass_info.sType				= VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	pass_info.attachmentCount	= 1;
-	pass_info.pAttachments		= &color_attachment;
+	pass_info.attachmentCount	= static_cast<uint32_t>(attachments.size());
+	pass_info.pAttachments		= attachments.data();
 	pass_info.subpassCount		= 1;
 	pass_info.pSubpasses		= &subpass;
 	pass_info.dependencyCount	= 1;
@@ -464,6 +483,19 @@ Error Renderer::create_graphics_pipeline() {
 	multisampling.sampleShadingEnable = VK_FALSE;
 	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+	VkPipelineDepthStencilStateCreateInfo depth_stencil = {};
+	depth_stencil.sType =
+			VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depth_stencil.depthTestEnable = VK_TRUE;
+	depth_stencil.depthWriteEnable = VK_TRUE;
+	depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	depth_stencil.depthBoundsTestEnable = VK_FALSE;
+	depth_stencil.minDepthBounds = 0.0f;
+	depth_stencil.maxDepthBounds = 1.0f;
+	depth_stencil.stencilTestEnable = VK_FALSE;
+	depth_stencil.front = {};
+	depth_stencil.back = {};
+
 	VkPipelineColorBlendAttachmentState color_blend_attachment = {};
 	color_blend_attachment.colorWriteMask =
 			// RGBA
@@ -515,6 +547,7 @@ Error Renderer::create_graphics_pipeline() {
 	pipeline_info.pViewportState = &viewport_state;
 	pipeline_info.pRasterizationState = &rasterizer;
 	pipeline_info.pMultisampleState = &multisampling;
+	pipeline_info.pDepthStencilState = &depth_stencil;
 	pipeline_info.pColorBlendState = &color_blending;
 	pipeline_info.pDynamicState = &dynamic_info;
 	pipeline_info.layout = _pipeline_layout;
@@ -549,13 +582,15 @@ Error Renderer::create_framebuffers() {
 	VkResult err;
 
 	for (size_t i = 0; i < _swapchain_image_views.size(); i++) {
-		VkImageView attachments[] = { _swapchain_image_views[i] };
+		std::array<VkImageView, 2> attachments = { _swapchain_image_views[i],
+			_depth_image_view };
 
 		VkFramebufferCreateInfo framebuffer_info = {};
 		framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		framebuffer_info.renderPass = _render_pass;
-		framebuffer_info.attachmentCount = 1;
-		framebuffer_info.pAttachments = attachments;
+		framebuffer_info.attachmentCount =
+				static_cast<uint32_t>(attachments.size());
+		framebuffer_info.pAttachments = attachments.data();
 		framebuffer_info.width = _vkb_swapchain.extent.width;
 		framebuffer_info.height = _vkb_swapchain.extent.height;
 		framebuffer_info.layers = 1;
@@ -583,6 +618,28 @@ Error Renderer::create_command_pool() {
 			_vkb_device.device, &pool_info, nullptr, &_command_pool);
 	ERR_FAIL_COND_V_MSG(
 			err != VK_SUCCESS, FAIL, "Failed to create command pool");
+
+	return OK;
+}
+
+Error Renderer::create_depth_resources() {
+
+	VkFormat depth_format = find_depth_format();
+
+	create_image(&_depth_image,
+			_vkb_swapchain.extent.width,
+			_vkb_swapchain.extent.height,
+			depth_format,
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	_depth_image_view = create_image_view(
+			_depth_image.image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+	transition_image_layout(&_depth_image,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
 	return OK;
 }
@@ -762,8 +819,10 @@ Error Renderer::create_texture_image() {
 }
 
 Error Renderer::create_texture_image_view() {
-	return create_image_view(
-			&_texture_image_view, _texture_image.image, _texture_image.format);
+	_texture_image_view = create_image_view(_texture_image.image,
+			_texture_image.format,
+			VK_IMAGE_ASPECT_COLOR_BIT);
+	return OK;
 }
 
 Error Renderer::create_texture_sampler() {
@@ -849,29 +908,30 @@ Error Renderer::create_image(Image *image,
 	return OK;
 }
 
-Error Renderer::create_image_view(
-		VkImageView *image_view, VkImage image, VkFormat format) {
+VkImageView Renderer::create_image_view(
+		VkImage image, VkFormat format, VkImageAspectFlags aspect) {
 
 	VkImageViewCreateInfo view_info = {};
 	view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	view_info.image = image;
 	view_info.format = format;
 	view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	view_info.subresourceRange.aspectMask = aspect;
 	view_info.subresourceRange.baseMipLevel = 0;
 	view_info.subresourceRange.levelCount = 1;
 	view_info.subresourceRange.baseArrayLayer = 0;
 	view_info.subresourceRange.layerCount = 1;
 
+	VkImageView image_view;
 	VkResult err = vkCreateImageView(
-			_vkb_device.device, &view_info, nullptr, image_view);
+			_vkb_device.device, &view_info, nullptr, &image_view);
 
 	ERR_FAIL_COND_V_MSG(err != VK_SUCCESS,
-			FAIL,
+			image_view,
 			"Failed to create image view: %d",
 			(int)err);
 
-	return OK;
+	return image_view;
 }
 
 Error Renderer::transition_image_layout(
@@ -884,11 +944,20 @@ Error Renderer::transition_image_layout(
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image->image;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	barrier.subresourceRange.baseMipLevel = 0;
 	barrier.subresourceRange.levelCount = 1;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 1;
+
+	if (new_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+		if (has_stencil_component(image->format)) {
+			barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
+	} else {
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	}
 
 	VkPipelineStageFlags src_stage;
 	VkPipelineStageFlags dst_stage;
@@ -907,6 +976,14 @@ Error Renderer::transition_image_layout(
 
 		src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 		dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	} else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+			   new_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+		barrier.srcAccessMask = 0;
+		barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+								VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+		src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		dst_stage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 	} else {
 		LOG_ERR("Unsupported layout transition");
 		return FAIL;
@@ -1284,9 +1361,13 @@ Error Renderer::create_command_buffers() {
 		render_pass_info.renderArea.offset = { 0, 0 };
 		render_pass_info.renderArea.extent = _vkb_swapchain.extent;
 
-		VkClearValue clear_color{ { { 0.0f, 0.0f, 0.0f, 1.0f } } };
-		render_pass_info.clearValueCount = 1;
-		render_pass_info.pClearValues = &clear_color;
+		std::array<VkClearValue, 2> clear_colors = {};
+		clear_colors[0].color = { 0.0f, 0.0f, 0.0f, 1.0f };
+		clear_colors[1].depthStencil = { 1.0f, 0 };
+
+		render_pass_info.clearValueCount =
+				static_cast<uint32_t>(clear_colors.size());
+		render_pass_info.pClearValues = clear_colors.data();
 
 		VkViewport viewport = {};
 		viewport.x = 0.0f;
@@ -1397,6 +1478,40 @@ Error Renderer::create_sync_objects() {
 	return OK;
 }
 
+VkFormat Renderer::find_supported_format(
+		const std::vector<VkFormat> &candidates,
+		VkImageTiling tiling,
+		VkFormatFeatureFlags features) {
+	for (VkFormat format : candidates) {
+		VkFormatProperties props;
+		vkGetPhysicalDeviceFormatProperties(
+				_vkb_device.physical_device.physical_device, format, &props);
+		if (tiling == VK_IMAGE_TILING_LINEAR &&
+				(props.linearTilingFeatures & features) == features) {
+			return format;
+		} else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
+				   (props.optimalTilingFeatures & features) == features) {
+			return format;
+		}
+	}
+
+	LOG_ERR("Failed to find supported format");
+	return VK_FORMAT_UNDEFINED;
+}
+
+VkFormat Renderer::find_depth_format() {
+	return find_supported_format({ VK_FORMAT_D32_SFLOAT,
+										 VK_FORMAT_D32_SFLOAT_S8_UINT,
+										 VK_FORMAT_D24_UNORM_S8_UINT },
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+}
+
+bool Renderer::has_stencil_component(VkFormat format) {
+	return format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+		   format == VK_FORMAT_D24_UNORM_S8_UINT;
+}
+
 Error Renderer::recreate_swapchain() {
 
 	int width = 0;
@@ -1423,6 +1538,9 @@ Error Renderer::recreate_swapchain() {
 	ERR_FAIL_COND_V_MSG(create_graphics_pipeline(),
 			FAIL,
 			"Failed to create_graphics_pipeline when recreating swapchain.");
+	ERR_FAIL_COND_V_MSG(create_depth_resources(),
+			FAIL,
+			"Failed to create_depth_resources when recreating swapchain.");
 	ERR_FAIL_COND_V_MSG(create_framebuffers(),
 			FAIL,
 			"Failed to create_framebuffers when recreating swapchain.");
@@ -1432,6 +1550,9 @@ Error Renderer::recreate_swapchain() {
 	ERR_FAIL_COND_V_MSG(create_descriptor_pool(),
 			FAIL,
 			"Failed to create_descriptor_pool when recreating swapchain.");
+	ERR_FAIL_COND_V_MSG(create_descriptor_sets(),
+			FAIL,
+			"Failed to create_descriptor_sets when recreating swapchain.");
 	ERR_FAIL_COND_V_MSG(create_command_buffers(),
 			FAIL,
 			"Failed to create_command_buffers when recreating swapchain.");
@@ -1442,6 +1563,10 @@ Error Renderer::recreate_swapchain() {
 }
 
 Error Renderer::destroy_swapchain() {
+
+	vkDestroyImageView(_vkb_device.device, _depth_image_view, nullptr);
+	destroy_and_free_image(&_depth_image);
+
 	for (auto framebuffer : _framebuffers) {
 		vkDestroyFramebuffer(_vkb_device.device, framebuffer, nullptr);
 	}
