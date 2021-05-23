@@ -5,8 +5,8 @@
 ### General config, applies to all languages ###
 BasedOnStyle: LLVM
 AccessModifierOffset: -4
-AlignAfterOpenBracket: DontAlign
-# AlignConsecutiveAssignments: false
+AlignAfterOpenBracket: AlwaysBreak
+AlignConsecutiveAssignments: true
 # AlignConsecutiveDeclarations: false
 # AlignEscapedNewlines: Right
 # AlignOperands:   true
@@ -98,6 +98,7 @@ ReflowComments:  true
 # SortUsingDeclarations: true
 # SpaceAfterCStyleCast: false
 # SpaceAfterTemplateKeyword: true
+SpaceBeforeCpp11BracedList: true
 # SpaceBeforeAssignmentOperators: true
 # SpaceBeforeParens: ControlStatements
 SpaceInEmptyParentheses: false

@@ -11,20 +11,20 @@ namespace Opal {
 /**
  *  @brief Create shader module from spirv code.
  */
-static VkShaderModule createShaderModule(VkDevice device,
+static VkShaderModule createShaderModule(
+		VkDevice device,
 		const std::string &name,
 		const std::vector<char> &code) {
 
-	VkShaderModuleCreateInfo shader_info = {};
-	// clang-format off
-	shader_info.sType		= VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	shader_info.codeSize	= code.size();
-	shader_info.pCode		= reinterpret_cast<const uint32_t *>(code.data());
-	// clang-format on
+	VkShaderModuleCreateInfo shader_info {
+		.sType	  = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+		.codeSize = code.size(),
+		.pCode	  = reinterpret_cast<const uint32_t *>(code.data()),
+	};
 
 	VkShaderModule shader_module;
 	if (vkCreateShaderModule(device, &shader_info, nullptr, &shader_module) !=
-			VK_SUCCESS) {
+		VK_SUCCESS) {
 		LOG_ERR("Failed to create shader module: %s", name.c_str());
 		return VK_NULL_HANDLE;
 	}
@@ -34,8 +34,8 @@ static VkShaderModule createShaderModule(VkDevice device,
 /**
  *  @brief Create shader module from spirv file.
  */
-static VkShaderModule createShaderModuleFromFile(
-		VkDevice device, const std::string &filename) {
+static VkShaderModule
+createShaderModuleFromFile(VkDevice device, const std::string &filename) {
 	auto code = readFile(filename + ".spv");
 	return createShaderModule(device, filename, code);
 }

@@ -3,7 +3,7 @@
 using namespace Opal;
 
 App::App(int argc, char **argv) {
-	_renderer = Renderer{};
+	_renderer = Renderer {};
 }
 
 int App::run() {

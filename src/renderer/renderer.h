@@ -40,32 +40,33 @@ struct Vertex {
 	glm::vec2 tex_coord;
 
 	static VkVertexInputBindingDescription get_binding_description() {
-		VkVertexInputBindingDescription desc{};
-		desc.binding = 0;
-		desc.stride = sizeof(Vertex);
-		desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+		VkVertexInputBindingDescription desc {
+			.binding   = 0,
+			.stride	   = sizeof(Vertex),
+			.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+		};
 		return desc;
 	}
 
 	static std::array<VkVertexInputAttributeDescription, 3>
 	get_attribute_descriptions() {
 		std::array<VkVertexInputAttributeDescription, 3>
-				attribute_descriptions{};
+				attribute_descriptions {};
 
-		attribute_descriptions[0].binding = 0;
+		attribute_descriptions[0].binding  = 0;
 		attribute_descriptions[0].location = 0;
-		attribute_descriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attribute_descriptions[0].offset = offsetof(Vertex, pos);
+		attribute_descriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
+		attribute_descriptions[0].offset   = offsetof(Vertex, pos);
 
-		attribute_descriptions[1].binding = 0;
+		attribute_descriptions[1].binding  = 0;
 		attribute_descriptions[1].location = 1;
-		attribute_descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-		attribute_descriptions[1].offset = offsetof(Vertex, color);
+		attribute_descriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+		attribute_descriptions[1].offset   = offsetof(Vertex, color);
 
-		attribute_descriptions[2].binding = 0;
+		attribute_descriptions[2].binding  = 0;
 		attribute_descriptions[2].location = 2;
-		attribute_descriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-		attribute_descriptions[2].offset = offsetof(Vertex, tex_coord);
+		attribute_descriptions[2].format   = VK_FORMAT_R32G32_SFLOAT;
+		attribute_descriptions[2].offset   = offsetof(Vertex, tex_coord);
 
 		return attribute_descriptions;
 	}
@@ -86,10 +87,12 @@ const std::vector<Vertex> vertices = {
 	{ { -0.5f, -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
 	{ { 0.5f, -0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },
 	{ { 0.5f, 0.5f, -0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
-	{ { -0.5f, 0.5f, -0.5f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } }
+	{ { -0.5f, 0.5f, -0.5f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } },
 };
 
-const std::vector<uint16_t> indices = { 0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4 };
+const std::vector<uint16_t> indices = {
+	0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4,
+};
 
 class Renderer {
 
@@ -170,7 +173,8 @@ protected:
 	Error create_command_buffers();
 	Error create_sync_objects();
 
-	VkFormat find_supported_format(const std::vector<VkFormat> &candidates,
+	VkFormat find_supported_format(
+			const std::vector<VkFormat> &candidates,
 			VkImageTiling tiling,
 			VkFormatFeatureFlags features);
 	VkFormat find_depth_format();
@@ -184,11 +188,12 @@ protected:
 #ifdef USE_DEBUG_UTILS
 #define VK_DEBUG_OBJECT_NAME(type, handle, name)                               \
 	_debug_object_name(type, handle, name)
-	void _debug_object_name(
-			VkObjectType type, uint64_t handle, const char *name);
+	void
+	_debug_object_name(VkObjectType type, uint64_t handle, const char *name);
 #define VK_DEBUG_BEGIN_LABEL(command_buffer, name, r, g, b, a)                 \
 	_debug_begin_label(command_buffer, name, r, g, b, a)
-	void _debug_begin_label(VkCommandBuffer command_buffer,
+	void _debug_begin_label(
+			VkCommandBuffer command_buffer,
 			const char *name,
 			float r,
 			float g,
@@ -196,7 +201,8 @@ protected:
 			float a);
 #define VK_DEBUG_INSERT_LABEL(command_buffer, name, r, g, b, a)                \
 	_debug_insert_label(command_buffer, name, r, g, b, a)
-	void _debug_insert_label(VkCommandBuffer command_buffer,
+	void _debug_insert_label(
+			VkCommandBuffer command_buffer,
 			const char *name,
 			float r,
 			float g,
@@ -224,7 +230,8 @@ protected:
 	/* create single-use command buffer */                                     \
 	VkCommandBuffer cmd_buf = _begin_single_use_command_buffer();              \
 	/* null check the command buffer */                                        \
-	ERR_FAIL_COND_V_MSG(!cmd_buf,                                              \
+	ERR_FAIL_COND_V_MSG(                                                       \
+			!cmd_buf,                                                          \
 			FAIL,                                                              \
 			"Failed to create command buffer for single time command");        \
 	/* insert command in command buffer */                                     \
@@ -243,25 +250,25 @@ protected:
 	 * Ends and deallocates a "single-use" command buffer.
 	 * Use the `VK_SUBMIT_SINGLE_CMD` macro instead.
 	 */
-	void _end_and_submit_single_use_command_buffer(
-			VkCommandBuffer command_buffer);
+	void
+	_end_and_submit_single_use_command_buffer(VkCommandBuffer command_buffer);
 
 	struct Image {
-		VkImage image = VK_NULL_HANDLE;
+		VkImage image		= VK_NULL_HANDLE;
 		VmaAllocation alloc = nullptr;
 		VkExtent3D extent;
-		VkFormat format = VK_FORMAT_UNDEFINED;
-		VkImageTiling tiling = VK_IMAGE_TILING_MAX_ENUM;
+		VkFormat format			= VK_FORMAT_UNDEFINED;
+		VkImageTiling tiling	= VK_IMAGE_TILING_MAX_ENUM;
 		VkImageUsageFlags usage = VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM;
 		VkMemoryPropertyFlags properties =
 				VK_MEMORY_PROPERTY_FLAG_BITS_MAX_ENUM;
 	};
 
 	struct Buffer {
-		VkBuffer buffer = VK_NULL_HANDLE;
+		VkBuffer buffer		= VK_NULL_HANDLE;
 		VmaAllocation alloc = nullptr;
-		uint32_t size = 0;
-		uint32_t usage = 0;
+		uint32_t size		= 0;
+		uint32_t usage		= 0;
 		VkDescriptorBufferInfo info;
 		Buffer() {}
 	};
@@ -275,7 +282,8 @@ protected:
 	Image _depth_image;
 	VkImageView _depth_image_view;
 
-	Error create_image(Image *image,
+	Error create_image(
+			Image *image,
 			uint32_t width,
 			uint32_t height,
 			VkFormat format,
@@ -297,7 +305,8 @@ protected:
 	Buffer _index_buffer;
 	std::vector<Buffer> _uniform_buffers;
 
-	Error create_buffer(Buffer *buffer,
+	Error create_buffer(
+			Buffer *buffer,
 			uint32_t size,
 			uint32_t usage,
 			VmaMemoryUsage mapping,
