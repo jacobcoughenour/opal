@@ -1,12 +1,14 @@
 #ifndef __SHADER_H__
 #define __SHADER_H__
 
-#include <volk.h>
+#include "vk_types.h"
 
 #include "../utils/file.h"
 #include "../utils/log.h"
 
 namespace Opal {
+
+struct ShaderModule {};
 
 /**
  *  @brief Create shader module from spirv code.

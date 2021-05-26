@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "vk_debug.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -12,6 +13,58 @@ static void glfw_error_callback(int error, const char *description) {
 	LOG_ERR("GLFW Error %d: %s", error, description);
 }
 
+Error Renderer::Mesh::load_from_obj(Mesh *mesh, const char *filename) {
+
+	mesh->vertices.clear();
+	mesh->indices.clear();
+
+	tinyobj::attrib_t attrib;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+	std::string err;
+
+	bool res = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename);
+
+	ERR_FAIL_COND_V_MSG(!res, FAIL, "Failed to load model: %s", err.c_str());
+
+	std::unordered_map<Vertex, uint32_t> unique_vertices {};
+
+	for (const auto &shape : shapes) {
+		for (const auto &index : shape.mesh.indices) {
+			Vertex vertex {
+				.pos = {
+					attrib.vertices[3 * index.vertex_index + 0],
+					attrib.vertices[3 * index.vertex_index + 1],
+					attrib.vertices[3 * index.vertex_index + 2],
+				},
+				.color = {
+					1.0f, 1.0f, 1.0f
+				},
+				.tex_coord = {
+					attrib.texcoords[2 * index.texcoord_index + 0],
+					1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
+				},
+			};
+
+			if (unique_vertices.count(vertex) == 0) {
+				unique_vertices[vertex] =
+						static_cast<uint32_t>(mesh->vertices.size());
+				mesh->vertices.push_back(vertex);
+			}
+
+			mesh->indices.push_back(unique_vertices[vertex]);
+		}
+	}
+
+	return OK;
+}
+
+Renderer *Renderer::singleton = nullptr;
+
+Renderer *Renderer::get_singleton() {
+	return singleton;
+}
+
 Error Renderer::initialize() {
 
 	ERR_FAIL_COND_V_MSG(volkInitialize(), FAIL, "Failed to initialize Volk");
@@ -22,7 +75,7 @@ Error Renderer::initialize() {
 	ERR_TRY(create_vk_device());
 	ERR_TRY(create_vma_allocator());
 	ERR_TRY(create_swapchain());
-	ERR_TRY(create_image_views());
+	// ERR_TRY(create_image_views());
 	ERR_TRY(get_queues());
 	ERR_TRY(create_render_pass());
 	ERR_TRY(create_descriptor_set_layout());
@@ -35,11 +88,6 @@ Error Renderer::initialize() {
 	ERR_TRY(create_texture_image_view());
 	ERR_TRY(create_texture_sampler());
 
-	ERR_TRY(load_model());
-
-	ERR_TRY(create_vertex_buffer());
-	ERR_TRY(create_index_buffer());
-
 	ERR_TRY(create_uniform_buffers());
 	ERR_TRY(create_descriptor_pool());
 	ERR_TRY(create_descriptor_sets());
@@ -48,7 +96,31 @@ Error Renderer::initialize() {
 
 	_initialized = true;
 
+	Renderer::singleton = this;
+
 	return OK;
+}
+
+bool Renderer::has_mesh(Mesh *mesh) {
+	return _meshes.contains(mesh);
+}
+
+void Renderer::add_mesh(Mesh *mesh) {
+
+	if (has_mesh(mesh))
+		return;
+
+	mesh->vertex_buffer = create_vertex_buffer(mesh->name, mesh->vertices);
+	mesh->index_buffer	= create_index_buffer(mesh->name, mesh->indices);
+
+	_meshes.emplace(mesh);
+}
+
+void Renderer::add_render_object(RenderObject *render_object) {
+
+	render_object->init();
+
+	_render_objects.push_back(render_object);
 }
 
 Error Renderer::create_window() {
@@ -243,6 +315,7 @@ Error Renderer::create_swapchain() {
 	// (re)build swapchain
 	vkb::SwapchainBuilder swapchain_builder { _vkb_device };
 	auto swap_ret = swapchain_builder
+							.set_old_swapchain(_vkb_swapchain)
 							// swapchain settings
 							.build();
 
@@ -253,26 +326,34 @@ Error Renderer::create_swapchain() {
 		return FAIL;
 	}
 
+	vkb::destroy_swapchain(_vkb_swapchain);
+
 	// get final swapchain
 	_vkb_swapchain = swap_ret.value();
 
-	return OK;
-}
+	_swapchain_images = _vkb_swapchain.get_images().value();
 
-Error Renderer::create_image_views() {
-
-	_swapchain_images	   = _vkb_swapchain.get_images().value();
+	// this creates image views
 	_swapchain_image_views = _vkb_swapchain.get_image_views().value();
 
-	for (size_t i = 0; i < _swapchain_images.size(); i++) {
-		_swapchain_image_views[i] = create_image_view(
-				_swapchain_images[i],
-				_vkb_swapchain.image_format,
-				VK_IMAGE_ASPECT_COLOR_BIT);
-	}
-
 	return OK;
 }
+
+// Error Renderer::create_image_views() {
+
+// 	_swapchain_images	   = _vkb_swapchain.get_images().value();
+// 	_swapchain_image_views = _vkb_swapchain.get_image_views().value();
+
+// for (size_t i = 0; i < _swapchain_images.size(); i++) {
+// 	_swapchain_image_views[i] = create_image_view(
+// 			"swapchain image view " + std::to_string(i),
+// 			_swapchain_images[i],
+// 			_vkb_swapchain.image_format,
+// 			VK_IMAGE_ASPECT_COLOR_BIT);
+// }
+
+// 	return OK;
+// }
 
 Error Renderer::get_queues() {
 
@@ -597,9 +678,6 @@ Error Renderer::create_graphics_pipeline() {
 
 Error Renderer::create_framebuffers() {
 
-	_swapchain_images	   = _vkb_swapchain.get_images().value();
-	_swapchain_image_views = _vkb_swapchain.get_image_views().value();
-
 	_framebuffers.resize(_swapchain_image_views.size());
 
 	VkResult err;
@@ -637,6 +715,7 @@ Error Renderer::create_command_pool() {
 
 	VkCommandPoolCreateInfo pool_info {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
 		.queueFamilyIndex =
 				_vkb_device.get_queue_index(vkb::QueueType::graphics).value(),
 	};
@@ -663,7 +742,10 @@ Error Renderer::create_depth_resources() {
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	_depth_image_view = create_image_view(
-			_depth_image.image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT);
+			"depth buffer image view",
+			_depth_image.image,
+			depth_format,
+			VK_IMAGE_ASPECT_DEPTH_BIT);
 
 	transition_image_layout(
 			&_depth_image,
@@ -672,62 +754,6 @@ Error Renderer::create_depth_resources() {
 
 	return OK;
 }
-
-#ifdef USE_DEBUG_UTILS
-void Renderer::_debug_object_name(
-		VkObjectType type, uint64_t handle, const char *name) {
-
-	VkDebugUtilsObjectNameInfoEXT name_info {
-		.sType		  = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-		.pNext		  = NULL,
-		.objectType	  = type,
-		.objectHandle = handle,
-		.pObjectName  = name,
-	};
-
-	vkSetDebugUtilsObjectNameEXT(_vkb_device.device, &name_info);
-}
-
-void Renderer::_debug_begin_label(
-		VkCommandBuffer command_buffer,
-		const char *name,
-		float r,
-		float g,
-		float b,
-		float a) {
-
-	VkDebugUtilsLabelEXT label_info {
-		.sType		= VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
-		.pNext		= NULL,
-		.pLabelName = name,
-		.color		= { r, g, b, a },
-	};
-
-	vkCmdBeginDebugUtilsLabelEXT(command_buffer, &label_info);
-}
-
-void Renderer::_debug_insert_label(
-		VkCommandBuffer command_buffer,
-		const char *name,
-		float r,
-		float g,
-		float b,
-		float a) {
-
-	VkDebugUtilsLabelEXT label_info {
-		.sType		= VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
-		.pNext		= NULL,
-		.pLabelName = name,
-		.color		= { r, g, b, a },
-	};
-
-	vkCmdInsertDebugUtilsLabelEXT(command_buffer, &label_info);
-}
-
-void Renderer::_debug_end_label(VkCommandBuffer command_buffer) {
-	vkCmdEndDebugUtilsLabelEXT(command_buffer);
-}
-#endif
 
 VkCommandBuffer Renderer::_begin_single_use_command_buffer() {
 
@@ -806,6 +832,7 @@ Error Renderer::create_texture_image() {
 	Buffer staging_buffer;
 	create_buffer(
 			&staging_buffer,
+			"texture image staging buffer",
 			image_size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VMA_MEMORY_USAGE_CPU_ONLY,
@@ -855,6 +882,7 @@ Error Renderer::create_texture_image() {
 
 Error Renderer::create_texture_image_view() {
 	_texture_image_view = create_image_view(
+			"texture image view",
 			_texture_image.image,
 			_texture_image.format,
 			VK_IMAGE_ASPECT_COLOR_BIT);
@@ -952,7 +980,10 @@ Error Renderer::create_image(
 }
 
 VkImageView Renderer::create_image_view(
-		VkImage image, VkFormat format, VkImageAspectFlags aspect) {
+		std::string name,
+		VkImage image,
+		VkFormat format,
+		VkImageAspectFlags aspect) {
 
 	VkImageViewCreateInfo view_info {
 		.sType	  = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -977,6 +1008,12 @@ VkImageView Renderer::create_image_view(
 			image_view,
 			"Failed to create image view: %d",
 			(int)err);
+
+	VkDebug::object_name(
+			_vkb_device.device,
+			VK_OBJECT_TYPE_IMAGE_VIEW,
+			(uint64_t)image_view,
+			name.c_str());
 
 	return image_view;
 }
@@ -1088,58 +1125,15 @@ Error Renderer::copy_buffer_to_image(Buffer *buffer, Image *image) {
 	return OK;
 }
 
-Error Renderer::load_model() {
+Renderer::Buffer
+Renderer::create_vertex_buffer(std::string name, std::vector<Vertex> vertices) {
 
-	tinyobj::attrib_t attrib;
-	std::vector<tinyobj::shape_t> shapes;
-	std::vector<tinyobj::material_t> materials;
-	std::string err;
-
-	bool res = tinyobj::LoadObj(
-			&attrib, &shapes, &materials, &err, MODEL_PATH.c_str());
-
-	ERR_FAIL_COND_V_MSG(!res, FAIL, "Failed to load model: %s", err.c_str());
-
-	std::unordered_map<Vertex, uint32_t> unique_vertices {};
-
-	for (const auto &shape : shapes) {
-		for (const auto &index : shape.mesh.indices) {
-			Vertex vertex {
-				.pos = {
-					attrib.vertices[3 * index.vertex_index + 0],
-					attrib.vertices[3 * index.vertex_index + 1],
-					attrib.vertices[3 * index.vertex_index + 2],
-				},
-				.color = {
-					1.0f, 1.0f, 1.0f
-				},
-				.tex_coord = {
-					attrib.texcoords[2 * index.texcoord_index + 0],
-					1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
-				},
-			};
-
-			if (unique_vertices.count(vertex) == 0) {
-				unique_vertices[vertex] =
-						static_cast<uint32_t>(_vertices.size());
-				_vertices.push_back(vertex);
-			}
-
-			_indices.push_back(unique_vertices[vertex]);
-		}
-	}
-
-	return OK;
-}
-
-Error Renderer::create_vertex_buffer() {
-
-	uint32_t size = sizeof(_vertices[0]) * _vertices.size();
+	uint32_t size = sizeof(vertices[0]) * vertices.size();
 
 	Buffer staging_buffer;
-
 	create_buffer(
 			&staging_buffer,
+			"vertex staging buffer for " + name,
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VMA_MEMORY_USAGE_CPU_ONLY,
@@ -1149,37 +1143,41 @@ Error Renderer::create_vertex_buffer() {
 	void *data	 = nullptr;
 	VkResult err = vmaMapMemory(_vma_allocator, staging_buffer.alloc, &data);
 
+	Buffer buffer;
 	ERR_FAIL_COND_V_MSG(
 			err != VK_SUCCESS,
-			FAIL,
-			"Failed to map staging buffer memory: %d",
+			buffer,
+			"Failed to map vertex staging buffer memory for %s: %d",
+			name.c_str(),
 			(int)err);
 
-	memcpy(data, _vertices.data(), (size_t)size);
+	memcpy(data, vertices.data(), (size_t)size);
 	vmaUnmapMemory(_vma_allocator, staging_buffer.alloc);
 
 	create_buffer(
-			&_vertex_buffer,
+			&buffer,
+			"vertex buffer for " + name,
 			size,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT |
 					VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 			VMA_MEMORY_USAGE_GPU_ONLY,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-	copy_buffer(&staging_buffer, &_vertex_buffer, size);
+	copy_buffer(&staging_buffer, &buffer, size);
 
 	destroy_and_free_buffer(&staging_buffer);
 
-	return OK;
+	return buffer;
 }
 
-Error Renderer::create_index_buffer() {
-	uint32_t size = sizeof(_indices[0]) * _indices.size();
+Renderer::Buffer
+Renderer::create_index_buffer(std::string name, std::vector<uint32_t> indices) {
+	uint32_t size = sizeof(indices[0]) * indices.size();
 
 	Buffer staging_buffer;
-
 	create_buffer(
 			&staging_buffer,
+			"index staging buffer for " + name,
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VMA_MEMORY_USAGE_CPU_ONLY,
@@ -1189,27 +1187,30 @@ Error Renderer::create_index_buffer() {
 	void *data	 = nullptr;
 	VkResult err = vmaMapMemory(_vma_allocator, staging_buffer.alloc, &data);
 
+	Buffer buffer;
 	ERR_FAIL_COND_V_MSG(
 			err != VK_SUCCESS,
-			FAIL,
-			"Failed to map staging buffer memory: %d",
+			buffer,
+			"Failed to map staging buffer memory for %s: %d",
+			name.c_str(),
 			(int)err);
 
-	memcpy(data, _indices.data(), (size_t)size);
+	memcpy(data, indices.data(), (size_t)size);
 	vmaUnmapMemory(_vma_allocator, staging_buffer.alloc);
 
 	create_buffer(
-			&_index_buffer,
+			&buffer,
+			"index buffer for " + name,
 			size,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 			VMA_MEMORY_USAGE_GPU_ONLY,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-	copy_buffer(&staging_buffer, &_index_buffer, size);
+	copy_buffer(&staging_buffer, &buffer, size);
 
 	destroy_and_free_buffer(&staging_buffer);
 
-	return OK;
+	return buffer;
 }
 
 Error Renderer::create_uniform_buffers() {
@@ -1222,6 +1223,7 @@ Error Renderer::create_uniform_buffers() {
 		ERR_FAIL_COND_V_MSG(
 				create_buffer(
 						&_uniform_buffers[i],
+						"uniform buffer",
 						size,
 						VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 						VMA_MEMORY_USAGE_GPU_ONLY,
@@ -1366,6 +1368,7 @@ Error Renderer::update_uniform_buffer(uint32_t image_index) {
 
 Error Renderer::create_buffer(
 		Buffer *buffer,
+		std::string name,
 		uint32_t size,
 		uint32_t usage,
 		VmaMemoryUsage mapping,
@@ -1378,9 +1381,13 @@ Error Renderer::create_buffer(
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	};
 
+	auto name_cstr = name.c_str();
+
 	VmaAllocationCreateInfo alloc_info {
+		.flags			= VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT,
 		.usage			= mapping,
 		.preferredFlags = mem_flags,
+		.pUserData		= (void *_Nullable)name_cstr,
 	};
 
 	VkResult err = vmaCreateBuffer(
@@ -1391,12 +1398,16 @@ Error Renderer::create_buffer(
 			&buffer->alloc,
 			nullptr);
 
-	ERR_FAIL_COND_V_MSG(
-			err != VK_SUCCESS,
-			FAIL,
-			"Failed to allocate vertex buffer: %d",
-			(int)err);
+	VkDebug::object_name(
+			_vkb_device.device,
+			VK_OBJECT_TYPE_BUFFER,
+			(uint64_t)buffer->buffer,
+			name_cstr);
 
+	ERR_FAIL_COND_V_MSG(
+			err != VK_SUCCESS, FAIL, "Failed to allocate buffer: %d", (int)err);
+
+	buffer->name		= name_cstr;
 	buffer->info.buffer = buffer->buffer;
 	buffer->info.offset = 0;
 	buffer->info.range	= size;
@@ -1466,119 +1477,11 @@ Error Renderer::create_command_buffers() {
 
 	for (size_t i = 0; i < _command_buffers.size(); i++) {
 
-		VK_DEBUG_OBJECT_NAME(
+		VkDebug::object_name(
+				_vkb_device.device,
 				VK_OBJECT_TYPE_COMMAND_BUFFER,
 				(uint64_t)_command_buffers[i],
 				("Command Buffer " + std::to_string(i)).c_str());
-
-		VkCommandBufferBeginInfo begin_info {
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		};
-
-		err = vkBeginCommandBuffer(_command_buffers[i], &begin_info);
-
-		ERR_FAIL_COND_V_MSG(
-				err != VK_SUCCESS,
-				FAIL,
-				"Failed to begin command buffer [%d]",
-				i);
-
-		VkRenderPassBeginInfo render_pass_info {
-			.sType		 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-			.renderPass	 = _render_pass,
-			.framebuffer = _framebuffers[i],
-			.renderArea {
-					.offset = { 0, 0 },
-					.extent = _vkb_swapchain.extent,
-			},
-		};
-
-		std::array<VkClearValue, 2> clear_colors {};
-		clear_colors[0].color		 = { 0.0f, 0.0f, 0.0f, 1.0f };
-		clear_colors[1].depthStencil = { 1.0f, 0 };
-
-		render_pass_info.clearValueCount =
-				static_cast<uint32_t>(clear_colors.size());
-		render_pass_info.pClearValues = clear_colors.data();
-
-		VkViewport viewport {
-			.x		  = 0.0f,
-			.y		  = 0.0f,
-			.width	  = (float)_vkb_swapchain.extent.width,
-			.height	  = (float)_vkb_swapchain.extent.height,
-			.minDepth = 0.0f,
-			.maxDepth = 1.0f,
-		};
-
-		VkRect2D scissor = {
-			.offset = { 0, 0 },
-			.extent = _vkb_swapchain.extent,
-		};
-
-		VK_DEBUG_BEGIN_LABEL(
-				_command_buffers[i], "render pass", 0.0f, 0.0f, 1.0f, 1.0f);
-
-		vkCmdSetViewport(_command_buffers[i], 0, 1, &viewport);
-		vkCmdSetScissor(_command_buffers[i], 0, 1, &scissor);
-		vkCmdBeginRenderPass(
-				_command_buffers[i],
-				&render_pass_info,
-				VK_SUBPASS_CONTENTS_INLINE);
-		// render pass
-		{
-			vkCmdBindPipeline(
-					_command_buffers[i],
-					VK_PIPELINE_BIND_POINT_GRAPHICS,
-					_graphics_pipeline);
-
-			VkBuffer vertex_buffers[] = { _vertex_buffer.buffer };
-			VkDeviceSize offsets[]	  = { 0 };
-			vkCmdBindVertexBuffers(
-					_command_buffers[i], 0, 1, vertex_buffers, offsets);
-
-			vkCmdBindIndexBuffer(
-					_command_buffers[i],
-					_index_buffer.buffer,
-					0,
-					VK_INDEX_TYPE_UINT32);
-
-			vkCmdBindDescriptorSets(
-					_command_buffers[i],
-					VK_PIPELINE_BIND_POINT_GRAPHICS,
-					_pipeline_layout,
-					0,
-					1,
-					&_descriptor_sets[i],
-					0,
-					nullptr);
-
-			VK_DEBUG_INSERT_LABEL(
-					_command_buffers[i],
-					"draw indexed",
-					1.0f,
-					0.0f,
-					1.0f,
-					1.0f);
-
-			vkCmdDrawIndexed(
-					_command_buffers[i],
-					static_cast<uint32_t>(_indices.size()),
-					1,
-					0,
-					0,
-					0);
-		}
-		vkCmdEndRenderPass(_command_buffers[i]);
-
-		VK_DEBUG_END_LABEL(_command_buffers[i]);
-
-		err = vkEndCommandBuffer(_command_buffers[i]);
-
-		ERR_FAIL_COND_V_MSG(
-				err != VK_SUCCESS,
-				FAIL,
-				"Failed to end command buffer [%d]",
-				i);
 	}
 
 	return OK;
@@ -1675,13 +1578,17 @@ Error Renderer::recreate_swapchain() {
 	destroy_swapchain();
 
 	ERR_FAIL_COND_V_MSG(
+			create_command_pool(),
+			FAIL,
+			"Failed to create_command_pool when recreating swapchain.");
+	ERR_FAIL_COND_V_MSG(
 			create_swapchain(),
 			FAIL,
 			"Failed to create_swapchain when recreating swapchain.");
-	ERR_FAIL_COND_V_MSG(
-			create_image_views(),
-			FAIL,
-			"Failed to create_image_views when recreating swapchain.");
+	// ERR_FAIL_COND_V_MSG(
+	// 		create_image_views(),
+	// 		FAIL,
+	// 		"Failed to create_image_views when recreating swapchain.");
 	ERR_FAIL_COND_V_MSG(
 			create_render_pass(),
 			FAIL,
@@ -1729,19 +1636,19 @@ Error Renderer::destroy_swapchain() {
 		vkDestroyFramebuffer(_vkb_device.device, framebuffer, nullptr);
 	}
 
-	vkFreeCommandBuffers(
-			_vkb_device.device,
-			_command_pool,
-			static_cast<uint32_t>(_command_buffers.size()),
-			_command_buffers.data());
+	vkDestroyCommandPool(_vkb_device.device, _command_pool, nullptr);
+
+	// vkFreeCommandBuffers(
+	// 		_vkb_device.device,
+	// 		_command_pool,
+	// 		static_cast<uint32_t>(_command_buffers.size()),
+	// 		_command_buffers.data());
 
 	vkDestroyPipeline(_vkb_device.device, _graphics_pipeline, nullptr);
 	vkDestroyPipelineLayout(_vkb_device.device, _pipeline_layout, nullptr);
 	vkDestroyRenderPass(_vkb_device.device, _render_pass, nullptr);
 
 	_vkb_swapchain.destroy_image_views(_swapchain_image_views);
-
-	vkb::destroy_swapchain(_vkb_swapchain);
 
 	for (size_t i = 0; i < _swapchain_images.size(); i++) {
 		destroy_and_free_buffer(&_uniform_buffers[i]);
@@ -1758,7 +1665,15 @@ void Renderer::destroy() {
 
 	vkDeviceWaitIdle(_vkb_device.device);
 
+#ifdef VMA_DUMP_STATS_ON_DESTROY
+	char *vma_stats_pre = nullptr;
+	vmaBuildStatsString(_vma_allocator, &vma_stats_pre, true);
+	writeFile("vma_dump_pre_destroy.json", vma_stats_pre);
+	vmaFreeStatsString(_vma_allocator, vma_stats_pre);
+#endif
+
 	destroy_swapchain();
+	vkb::destroy_swapchain(_vkb_swapchain);
 
 	vkDestroySampler(_vkb_device.device, _texture_sampler, nullptr);
 	vkDestroyImageView(_vkb_device.device, _texture_image_view, nullptr);
@@ -1768,8 +1683,10 @@ void Renderer::destroy() {
 	vkDestroyDescriptorSetLayout(
 			_vkb_device.device, _descriptor_set_layout, nullptr);
 
-	destroy_and_free_buffer(&_vertex_buffer);
-	destroy_and_free_buffer(&_index_buffer);
+	for (auto mesh : _meshes) {
+		destroy_and_free_buffer(&mesh->vertex_buffer);
+		destroy_and_free_buffer(&mesh->index_buffer);
+	}
 
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroySemaphore(
@@ -1779,7 +1696,12 @@ void Renderer::destroy() {
 		vkDestroyFence(_vkb_device.device, _in_flight_fences[i], nullptr);
 	}
 
-	vkDestroyCommandPool(_vkb_device.device, _command_pool, nullptr);
+#ifdef VMA_DUMP_STATS_ON_DESTROY
+	char *vma_stats_post = nullptr;
+	vmaBuildStatsString(_vma_allocator, &vma_stats_post, true);
+	writeFile("vma_dump_post_destroy.json", vma_stats_post);
+	vmaFreeStatsString(_vma_allocator, vma_stats_post);
+#endif
 
 	vmaDestroyAllocator(_vma_allocator);
 
@@ -1807,7 +1729,34 @@ void Renderer::start_render_loop() {
 	vkDeviceWaitIdle(_vkb_device.device);
 }
 
+Error Renderer::draw_scene(VkCommandBuffer cmd_buf, uint32_t image_index) {
+
+	VkDebug::begin_label(cmd_buf, "draw scene");
+
+	RenderObject::DrawContext ctx {
+		.cmd_buf	 = cmd_buf,
+		.image_index = image_index,
+		.prev_object = nullptr,
+	};
+
+	for (RenderObject *render_object : _render_objects) {
+
+		VkDebug::begin_label(cmd_buf, render_object->name);
+
+		render_object->draw(ctx);
+		ctx.prev_object = render_object;
+
+		VkDebug::end_label(cmd_buf);
+	}
+
+	VkDebug::end_label(cmd_buf);
+
+	return OK;
+}
+
 Error Renderer::draw_frame() {
+
+	// wait for in-flight frame to complete.
 
 	vkWaitForFences(
 			_vkb_device.device,
@@ -1816,17 +1765,21 @@ Error Renderer::draw_frame() {
 			VK_TRUE,
 			UINT64_MAX);
 
-	uint32_t image_index = 0;
+	// get the index of the next presentable swapchain image to draw to.
 
-	VkResult result = vkAcquireNextImageKHR(
-			_vkb_device.device,
-			_vkb_swapchain.swapchain,
-			UINT64_MAX,
-			_available_semaphores[_current_frame],
-			VK_NULL_HANDLE,
-			&image_index);
+	uint32_t image_index = 0;
+	VkResult result		 = vkAcquireNextImageKHR(
+			 _vkb_device.device,
+			 _vkb_swapchain.swapchain,
+			 UINT64_MAX,
+			 _available_semaphores[_current_frame],
+			 VK_NULL_HANDLE,
+			 &image_index);
 
 	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+		// we probably just resized the window.
+		// recreate the swapchain to the new window size and try again next
+		// frame.
 		return recreate_swapchain();
 	} else {
 		ERR_FAIL_COND_V_MSG(
@@ -1836,7 +1789,8 @@ Error Renderer::draw_frame() {
 				result);
 	}
 
-	update_uniform_buffer(image_index);
+	// make sure that swapchain image is finished drawing before we start
+	// drawing to it again.
 
 	if (_images_in_flight[image_index] != VK_NULL_HANDLE) {
 		vkWaitForFences(
@@ -1846,8 +1800,82 @@ Error Renderer::draw_frame() {
 				VK_TRUE,
 				UINT64_MAX);
 	}
-
 	_images_in_flight[image_index] = _in_flight_fences[_current_frame];
+
+	update_uniform_buffer(image_index);
+
+	// now we can start drawing.
+
+	// grab the command buffer for this frame.
+	auto cmd_buf = _command_buffers[image_index];
+
+	// clear any existing commands on the buffer.
+	vkResetCommandBuffer(cmd_buf, 0);
+
+	// begin the command buffer.
+
+	VkCommandBufferBeginInfo begin_info {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	};
+	result = vkBeginCommandBuffer(cmd_buf, &begin_info);
+	ERR_FAIL_COND_V_MSG(
+			result != VK_SUCCESS, FAIL, "Failed to begin command buffer");
+
+	VkDebug::begin_label(cmd_buf, "render pass");
+
+	VkViewport viewport {
+		.x		  = 0.0f,
+		.y		  = 0.0f,
+		.width	  = (float)_vkb_swapchain.extent.width,
+		.height	  = (float)_vkb_swapchain.extent.height,
+		.minDepth = 0.0f,
+		.maxDepth = 1.0f,
+	};
+	vkCmdSetViewport(cmd_buf, 0, 1, &viewport);
+
+	VkRect2D scissor = {
+		.offset = { 0, 0 },
+		.extent = _vkb_swapchain.extent,
+	};
+	vkCmdSetScissor(cmd_buf, 0, 1, &scissor);
+
+	// begin the render pass
+	VkRenderPassBeginInfo render_pass_info {
+		.sType		 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+		.renderPass	 = _render_pass,
+		.framebuffer = _framebuffers[image_index],
+		.renderArea {
+				.offset = { 0, 0 },
+				.extent = _vkb_swapchain.extent,
+		},
+	};
+	{
+		VkClearValue clear_colors[] {
+			{ .color = { 0.0f, 0.0f, 0.0f, 1.0f } },
+			{ .depthStencil = { 1.0f, 0 } },
+		};
+		render_pass_info.clearValueCount = 2;
+		render_pass_info.pClearValues	 = &clear_colors[0];
+	}
+	vkCmdBeginRenderPass(
+			cmd_buf, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+	// draw the scene.
+	draw_scene(cmd_buf, image_index);
+
+	// end the render pass
+	vkCmdEndRenderPass(cmd_buf);
+
+	// end render pass label
+	VkDebug::end_label(cmd_buf);
+
+	// end command buffer
+	result = vkEndCommandBuffer(cmd_buf);
+	ERR_FAIL_COND_V_MSG(
+			result != VK_SUCCESS, FAIL, "Failed to end command buffer");
+
+	// now we need to submit the command buffer.
 
 	VkSemaphore wait_semaphores[] {
 		_available_semaphores[_current_frame],
@@ -1865,7 +1893,7 @@ Error Renderer::draw_frame() {
 		.pWaitSemaphores	  = wait_semaphores,
 		.pWaitDstStageMask	  = wait_stages,
 		.commandBufferCount	  = 1,
-		.pCommandBuffers	  = &_command_buffers[image_index],
+		.pCommandBuffers	  = &cmd_buf,
 		.signalSemaphoreCount = 1,
 		.pSignalSemaphores	  = signal_semaphores,
 	};
@@ -1877,12 +1905,13 @@ Error Renderer::draw_frame() {
 			1,
 			&submit_info,
 			_in_flight_fences[_current_frame]);
-
 	ERR_FAIL_COND_V_MSG(
 			result != VK_SUCCESS,
 			FAIL,
 			"Failed to submit draw command buffer: %s",
 			result);
+
+	// queue frame for presenting to the screen.
 
 	VkSwapchainKHR swapchains[] { _vkb_swapchain.swapchain };
 
@@ -1906,6 +1935,7 @@ Error Renderer::draw_frame() {
 				result);
 	}
 
+	// update the frame index
 	_current_frame = (_current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
 	return OK;

@@ -21,3 +21,16 @@ std::vector<char> readFile(const std::string &filename) {
 
 	return buffer;
 }
+
+void writeFile(const std::string &filename, const char *content) {
+
+	std::ofstream file(filename, std::ios::binary);
+
+	if (!file.is_open()) {
+		throw std::runtime_error("Failed to open file: " + filename);
+	}
+
+	file << content;
+
+	file.close();
+}

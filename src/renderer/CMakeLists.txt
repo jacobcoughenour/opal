@@ -1,10 +1,14 @@
 set(renderer_SOURCES 
-	renderer.cpp 
-	renderer.h 
 	config.h 
-	shader.h
+	render_object.h
+	render_object.cpp
+	renderer.h 
+	renderer.cpp 
+	vk_debug.h
 	vk_mem_alloc.h
-	vk_mem_alloc.cpp)
+	vk_mem_alloc.cpp
+	vk_shader.h
+	vk_types.h)
 
 add_library(renderer ${renderer_SOURCES})
 

@@ -6,4 +6,6 @@
 
 std::vector<char> readFile(const std::string &filename);
 
+void writeFile(const std::string &filename, const char *content);
+
 #endif // __FILE_H__

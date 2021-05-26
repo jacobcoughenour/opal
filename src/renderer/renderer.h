@@ -2,27 +2,12 @@
 #define __RENDERER_H__
 
 #include "../typedefs.h"
-#include "config.h"
-#include "shader.h"
+#include "vk_types.h"
 
-// #define VMA_IMPLEMENTATION
-// #define VMA_STATIC_VULKAN_FUNCTIONS 0
-#include "vk_mem_alloc.h"
-
-#include <volk.h>
-
-#include <VkBootstrap.h>
-
-#include <GLFW/glfw3.h>
-
-#define GLM_FORCE_RADIANS
-// glm uses [-1, 1] for depth but we need [0, 1] for vulkan
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-// #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/hash.hpp>
+
+#include "vk_shader.h"
 
 #include <array>
 #include <chrono>
@@ -36,6 +21,13 @@
 #include <vector>
 
 namespace Opal {
+
+const std::string TEXTURE_PATH = "assets/models/viking_room.png";
+
+struct Material {
+	VkPipeline pipeline;
+	VkPipelineLayout pipeline_layout;
+};
 
 struct Vertex {
 	glm::vec3 pos;
@@ -80,28 +72,95 @@ struct Vertex {
 	}
 };
 
-struct UniformBufferObject {
-	alignas(16) glm::mat4 model;
-	alignas(16) glm::mat4 view;
-	alignas(16) glm::mat4 proj;
+class RenderObject {
+public:
+	struct DrawContext {
+		VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
+		uint32_t image_index;
+		RenderObject *prev_object = nullptr;
+	};
+
+	RenderObject() : name("RenderObject") {}
+	explicit RenderObject(const char *name) : name(name) {}
+
+	glm::mat4 transform;
+	const char *name = nullptr;
+
+	virtual void init()					   = 0;
+	virtual void draw(DrawContext context) = 0;
+
+	virtual ~RenderObject() = default;
 };
 
-const std::string MODEL_PATH   = "assets/models/viking_room.obj";
-const std::string TEXTURE_PATH = "assets/models/viking_room.png";
-
 class Renderer {
+
+protected:
+	static Renderer *singleton;
 
 public:
 	Error initialize();
 	void destroy();
 	void start_render_loop();
 
+	static Renderer *get_singleton();
+
+	struct UniformBufferObject {
+		alignas(16) glm::mat4 model;
+		alignas(16) glm::mat4 view;
+		alignas(16) glm::mat4 proj;
+	};
+
+	struct Image {
+		VkImage image		= VK_NULL_HANDLE;
+		VmaAllocation alloc = nullptr;
+		VkExtent3D extent;
+		VkFormat format			= VK_FORMAT_UNDEFINED;
+		VkImageTiling tiling	= VK_IMAGE_TILING_MAX_ENUM;
+		VkImageUsageFlags usage = VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM;
+		VkMemoryPropertyFlags properties =
+				VK_MEMORY_PROPERTY_FLAG_BITS_MAX_ENUM;
+	};
+
+	struct Buffer {
+		const char *name	= nullptr;
+		VkBuffer buffer		= VK_NULL_HANDLE;
+		VmaAllocation alloc = nullptr;
+		uint32_t size		= 0;
+		uint32_t usage		= 0;
+		VkDescriptorBufferInfo info;
+		Buffer() {}
+	};
+
+	// todo manage descriptors
+
+	struct Uniform {};
+
+	struct Shader {
+		std::vector<Uniform> uniforms;
+	};
+
+	struct Mesh {
+		const char *name = nullptr;
+
+		std::vector<Vertex> vertices;
+		std::vector<uint32_t> indices;
+
+		Buffer vertex_buffer;
+		Buffer index_buffer;
+
+		static Error load_from_obj(Mesh *mesh, const char *filename);
+	};
+
+	bool has_mesh(Mesh *mesh);
+	void add_mesh(Mesh *mesh);
+	void add_render_object(RenderObject *render_object);
+
 protected:
 	bool _initialized;
 
-	// model stuff
-	std::vector<Vertex> _vertices;
-	std::vector<uint32_t> _indices;
+	std::set<Mesh *> _meshes;
+
+	std::vector<RenderObject *> _render_objects;
 
 	// window stuff
 	GLFWwindow *_window;
@@ -123,11 +182,15 @@ protected:
 
 	VkDescriptorSetLayout _descriptor_set_layout;
 	VkDescriptorPool _descriptor_pool;
+
+public:
 	std::vector<VkDescriptorSet> _descriptor_sets;
 
 	// graphics pipeline
 	VkPipelineLayout _pipeline_layout;
 	VkPipeline _graphics_pipeline;
+
+protected:
 	VkRenderPass _render_pass;
 
 	// commands
@@ -153,7 +216,7 @@ protected:
 	Error create_vk_device();
 	Error create_vma_allocator();
 	Error create_swapchain();
-	Error create_image_views();
+	// Error create_image_views();
 	Error get_queues();
 	Error create_render_pass();
 	Error create_descriptor_set_layout();
@@ -164,9 +227,7 @@ protected:
 	Error create_texture_image();
 	Error create_texture_image_view();
 	Error create_texture_sampler();
-	Error load_model();
-	Error create_vertex_buffer();
-	Error create_index_buffer();
+
 	Error create_uniform_buffers();
 	Error create_descriptor_pool();
 	Error create_descriptor_sets();
@@ -180,42 +241,11 @@ protected:
 	VkFormat find_depth_format();
 	bool has_stencil_component(VkFormat format);
 
+	Error draw_scene(VkCommandBuffer cmd_buf, uint32_t image_index);
 	Error draw_frame();
 
 	Error recreate_swapchain();
 	Error destroy_swapchain();
-
-#ifdef USE_DEBUG_UTILS
-#define VK_DEBUG_OBJECT_NAME(type, handle, name)                               \
-	_debug_object_name(type, handle, name)
-	void
-	_debug_object_name(VkObjectType type, uint64_t handle, const char *name);
-#define VK_DEBUG_BEGIN_LABEL(command_buffer, name, r, g, b, a)                 \
-	_debug_begin_label(command_buffer, name, r, g, b, a)
-	void _debug_begin_label(
-			VkCommandBuffer command_buffer,
-			const char *name,
-			float r,
-			float g,
-			float b,
-			float a);
-#define VK_DEBUG_INSERT_LABEL(command_buffer, name, r, g, b, a)                \
-	_debug_insert_label(command_buffer, name, r, g, b, a)
-	void _debug_insert_label(
-			VkCommandBuffer command_buffer,
-			const char *name,
-			float r,
-			float g,
-			float b,
-			float a);
-#define VK_DEBUG_END_LABEL(command_buffer) _debug_end_label(command_buffer)
-	void _debug_end_label(VkCommandBuffer command_buffer);
-#else
-#define VK_DEBUG_OBJECT_NAME(type, handle, name) ((void)0)
-#define VK_DEBUG_BEGIN_LABEL(command_buffer, name, r, g, b, a) ((void)0)
-#define VK_DEBUG_INSERT_LABEL(command_buffer, name, r, g, b, a) ((void)0)
-#define VK_DEBUG_END_LABEL(command_buffer) ((void)0)
-#endif
 
 /**
  * @brief Utility macro for running a single time command.
@@ -253,26 +283,6 @@ protected:
 	void
 	_end_and_submit_single_use_command_buffer(VkCommandBuffer command_buffer);
 
-	struct Image {
-		VkImage image		= VK_NULL_HANDLE;
-		VmaAllocation alloc = nullptr;
-		VkExtent3D extent;
-		VkFormat format			= VK_FORMAT_UNDEFINED;
-		VkImageTiling tiling	= VK_IMAGE_TILING_MAX_ENUM;
-		VkImageUsageFlags usage = VK_IMAGE_USAGE_FLAG_BITS_MAX_ENUM;
-		VkMemoryPropertyFlags properties =
-				VK_MEMORY_PROPERTY_FLAG_BITS_MAX_ENUM;
-	};
-
-	struct Buffer {
-		VkBuffer buffer		= VK_NULL_HANDLE;
-		VmaAllocation alloc = nullptr;
-		uint32_t size		= 0;
-		uint32_t usage		= 0;
-		VkDescriptorBufferInfo info;
-		Buffer() {}
-	};
-
 	// images
 
 	Image _texture_image;
@@ -292,7 +302,10 @@ protected:
 			VkMemoryPropertyFlags properties);
 
 	VkImageView create_image_view(
-			VkImage image, VkFormat format, VkImageAspectFlags aspect);
+			std::string name,
+			VkImage image,
+			VkFormat format,
+			VkImageAspectFlags aspect);
 
 	Error transition_image_layout(
 			Image *image, VkImageLayout old_layout, VkImageLayout new_layout);
@@ -301,12 +314,11 @@ protected:
 
 	// buffers
 
-	Buffer _vertex_buffer;
-	Buffer _index_buffer;
 	std::vector<Buffer> _uniform_buffers;
 
 	Error create_buffer(
 			Buffer *buffer,
+			std::string name,
 			uint32_t size,
 			uint32_t usage,
 			VmaMemoryUsage mapping,
@@ -324,6 +336,11 @@ protected:
 	Error copy_buffer_to_image(Buffer *buffer, Image *image);
 
 	Error update_uniform_buffer(uint32_t image_index);
+
+	Renderer::Buffer
+	create_vertex_buffer(std::string name, std::vector<Vertex> vertices);
+	Renderer::Buffer
+	create_index_buffer(std::string name, std::vector<uint32_t> indices);
 };
 
 } // namespace Opal

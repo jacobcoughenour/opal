@@ -22,6 +22,9 @@
 // enables debug utils for labels
 #define USE_DEBUG_UTILS
 
+// creates a json dump of remaining allocations before destroying the allocator
+#define VMA_DUMP_STATS_ON_DESTROY
+
 // required vulkan api version
 #define VK_REQUIRED_API_VERSION VK_API_VERSION_1_1
 
