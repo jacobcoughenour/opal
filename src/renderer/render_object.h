@@ -22,6 +22,7 @@ public:
 	void set_mesh(Renderer::Mesh *mesh);
 	void set_material(Material *material);
 	void init();
+	void update();
 	void draw(DrawContext context);
 };
 

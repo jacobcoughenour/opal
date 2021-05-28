@@ -11,7 +11,33 @@ void MeshInstance::set_material(Material *material) {
 	this->_material = material;
 }
 
-void MeshInstance::init() {}
+void MeshInstance::init() {
+	// static auto start_time = std::chrono::high_resolution_clock::now();
+	// auto current_time	   = std::chrono::high_resolution_clock::now();
+
+	// float time = std::chrono::duration<float, std::chrono::seconds::period>(
+	// 					 current_time - start_time)
+	// 					 .count();
+
+	// transform = glm::rotate(
+	// 		glm::mat4(1.0f),
+	// 		time * glm::radians(90.0f),
+	// 		glm::vec3(0.0f, 0.0f, 1.0f));
+}
+
+void MeshInstance::update() {
+	// static auto start_time = std::chrono::high_resolution_clock::now();
+	// auto current_time	   = std::chrono::high_resolution_clock::now();
+
+	// float time = std::chrono::duration<float, std::chrono::seconds::period>(
+	// 					 current_time - start_time)
+	// 					 .count();
+
+	// transform = glm::rotate(
+	// 		glm::mat4(1.0f),
+	// 		time * glm::radians(90.0f),
+	// 		glm::vec3(0.0f, 0.0f, 1.0f));
+}
 
 void MeshInstance::draw(DrawContext context) {
 
@@ -22,27 +48,40 @@ void MeshInstance::draw(DrawContext context) {
 
 		// bind the material
 
-		auto rend = Renderer::get_singleton();
-
 		vkCmdBindPipeline(
 				context.cmd_buf,
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				rend->_graphics_pipeline
+				context.renderer->_graphics_pipeline
 				// material->pipeline
 		);
 
 		vkCmdBindDescriptorSets(
 				context.cmd_buf,
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				rend->_pipeline_layout,
+				context.renderer->_pipeline_layout,
 				// material->pipeline_layout,
 				0,
 				1,
-				&rend->_descriptor_sets[context.image_index],
+				&context.renderer->_descriptor_sets[context.image_index],
 				// &_descriptor_sets[image_index],
 				0,
 				nullptr);
 	}
+
+	// send push constants
+
+	Renderer::PushConstants push_constants {
+		.model = transform,
+		.view  = context.view,
+		.proj  = context.proj,
+	};
+	vkCmdPushConstants(
+			context.cmd_buf,
+			context.renderer->_pipeline_layout,
+			VK_SHADER_STAGE_VERTEX_BIT,
+			0,
+			sizeof(Renderer::PushConstants),
+			&push_constants);
 
 	// skip if previous object used the same mesh
 	if (prev == nullptr || prev->_mesh != _mesh) {

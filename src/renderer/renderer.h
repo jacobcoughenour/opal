@@ -22,6 +22,8 @@
 
 namespace Opal {
 
+class Renderer;
+
 const std::string TEXTURE_PATH = "assets/models/viking_room.png";
 
 struct Material {
@@ -75,9 +77,12 @@ struct Vertex {
 class RenderObject {
 public:
 	struct DrawContext {
+		Renderer *renderer;
 		VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
 		uint32_t image_index;
 		RenderObject *prev_object = nullptr;
+		glm::mat4 view;
+		glm::mat4 proj;
 	};
 
 	RenderObject() : name("RenderObject") {}
@@ -87,6 +92,7 @@ public:
 	const char *name = nullptr;
 
 	virtual void init()					   = 0;
+	virtual void update()				   = 0;
 	virtual void draw(DrawContext context) = 0;
 
 	virtual ~RenderObject() = default;
@@ -103,12 +109,6 @@ public:
 	void start_render_loop();
 
 	static Renderer *get_singleton();
-
-	struct UniformBufferObject {
-		alignas(16) glm::mat4 model;
-		alignas(16) glm::mat4 view;
-		alignas(16) glm::mat4 proj;
-	};
 
 	struct Image {
 		VkImage image		= VK_NULL_HANDLE;
@@ -132,6 +132,18 @@ public:
 	};
 
 	// todo manage descriptors
+
+	// struct UniformBufferObject {
+	// 	alignas(16) glm::mat4 model;
+	// 	alignas(16) glm::mat4 view;
+	// 	alignas(16) glm::mat4 proj;
+	// };
+
+	struct PushConstants {
+		alignas(16) glm::mat4 model;
+		alignas(16) glm::mat4 view;
+		alignas(16) glm::mat4 proj;
+	};
 
 	struct Uniform {};
 
@@ -228,7 +240,7 @@ protected:
 	Error create_texture_image_view();
 	Error create_texture_sampler();
 
-	Error create_uniform_buffers();
+	// Error create_uniform_buffers();
 	Error create_descriptor_pool();
 	Error create_descriptor_sets();
 	Error create_command_buffers();
@@ -335,7 +347,7 @@ protected:
 	 */
 	Error copy_buffer_to_image(Buffer *buffer, Image *image);
 
-	Error update_uniform_buffer(uint32_t image_index);
+	// Error update_uniform_buffer(uint32_t image_index);
 
 	Renderer::Buffer
 	create_vertex_buffer(std::string name, std::vector<Vertex> vertices);

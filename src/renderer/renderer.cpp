@@ -88,7 +88,7 @@ Error Renderer::initialize() {
 	ERR_TRY(create_texture_image_view());
 	ERR_TRY(create_texture_sampler());
 
-	ERR_TRY(create_uniform_buffers());
+	// ERR_TRY(create_uniform_buffers());
 	ERR_TRY(create_descriptor_pool());
 	ERR_TRY(create_descriptor_sets());
 	ERR_TRY(create_command_buffers());
@@ -457,13 +457,13 @@ Error Renderer::create_render_pass() {
 
 Error Renderer::create_descriptor_set_layout() {
 
-	VkDescriptorSetLayoutBinding ubo_layout_binding {
-		.binding			= 0,
-		.descriptorType		= VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.descriptorCount	= 1,
-		.stageFlags			= VK_SHADER_STAGE_VERTEX_BIT,
-		.pImmutableSamplers = nullptr,
-	};
+	// VkDescriptorSetLayoutBinding ubo_layout_binding {
+	// 	.binding			= 0,
+	// 	.descriptorType		= VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	// 	.descriptorCount	= 1,
+	// 	.stageFlags			= VK_SHADER_STAGE_VERTEX_BIT,
+	// 	.pImmutableSamplers = nullptr,
+	// };
 
 	VkDescriptorSetLayoutBinding sampler_layout_binding {
 		.binding		 = 1,
@@ -474,8 +474,8 @@ Error Renderer::create_descriptor_set_layout() {
 		.pImmutableSamplers = nullptr,
 	};
 
-	std::array<VkDescriptorSetLayoutBinding, 2> bindings {
-		ubo_layout_binding,
+	std::array<VkDescriptorSetLayoutBinding, 1> bindings {
+		// ubo_layout_binding,
 		sampler_layout_binding,
 	};
 
@@ -613,11 +613,18 @@ Error Renderer::create_graphics_pipeline() {
 		.blendConstants	 = { 0.0f, 0.0f, 0.0f, 0.0f },
 	};
 
+	VkPushConstantRange push_constant {
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+		.offset		= 0,
+		.size		= sizeof(PushConstants),
+	};
+
 	VkPipelineLayoutCreateInfo pipeline_layout_info {
-		.sType			= VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 1,
-		//.pushConstantRangeCount = 0,
-		.pSetLayouts = &_descriptor_set_layout,
+		.sType					= VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.setLayoutCount			= 1,
+		.pSetLayouts			= &_descriptor_set_layout,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges	= &push_constant,
 	};
 
 	VkResult err = vkCreatePipelineLayout(
@@ -1213,29 +1220,29 @@ Renderer::create_index_buffer(std::string name, std::vector<uint32_t> indices) {
 	return buffer;
 }
 
-Error Renderer::create_uniform_buffers() {
+// Error Renderer::create_uniform_buffers() {
 
-	VkDeviceSize size = sizeof(UniformBufferObject);
+// 	VkDeviceSize size = sizeof(UniformBufferObject);
 
-	_uniform_buffers.resize(_swapchain_images.size());
+// 	_uniform_buffers.resize(_swapchain_images.size());
 
-	for (size_t i = 0; i < _swapchain_images.size(); i++) {
-		ERR_FAIL_COND_V_MSG(
-				create_buffer(
-						&_uniform_buffers[i],
-						"uniform buffer",
-						size,
-						VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-						VMA_MEMORY_USAGE_GPU_ONLY,
-						VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-								VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != OK,
-				FAIL,
-				"Failed to create uniform buffer %d",
-				i);
-	}
+// 	for (size_t i = 0; i < _swapchain_images.size(); i++) {
+// 		ERR_FAIL_COND_V_MSG(
+// 				create_buffer(
+// 						&_uniform_buffers[i],
+// 						"uniform buffer",
+// 						size,
+// 						VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+// 						VMA_MEMORY_USAGE_GPU_ONLY,
+// 						VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+// 								VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != OK,
+// 				FAIL,
+// 				"Failed to create uniform buffer %d",
+// 				i);
+// 	}
 
-	return OK;
-}
+// 	return OK;
+// }
 
 Error Renderer::create_descriptor_pool() {
 
@@ -1291,11 +1298,11 @@ Error Renderer::create_descriptor_sets() {
 			(int)res);
 
 	for (size_t i = 0; i < _swapchain_images.size(); i++) {
-		VkDescriptorBufferInfo buffer_info {
-			.buffer = _uniform_buffers[i].buffer,
-			.offset = 0,
-			.range	= sizeof(UniformBufferObject),
-		};
+		// VkDescriptorBufferInfo buffer_info {
+		// 	.buffer = _uniform_buffers[i].buffer,
+		// 	.offset = 0,
+		// 	.range	= sizeof(UniformBufferObject),
+		// };
 
 		VkDescriptorImageInfo image_info {
 			.sampler	 = _texture_sampler,
@@ -1303,24 +1310,25 @@ Error Renderer::create_descriptor_sets() {
 			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		};
 
-		std::array<VkWriteDescriptorSet, 2> descriptor_writes {};
+		std::array<VkWriteDescriptorSet, 1> descriptor_writes {};
+
+		// descriptor_writes[0].sType	=
+		// VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; descriptor_writes[0].dstSet =
+		// _descriptor_sets[i]; descriptor_writes[0].dstBinding		 = 0;
+		// descriptor_writes[0].dstArrayElement = 0;
+		// descriptor_writes[0].descriptorType =
+		// VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		// descriptor_writes[0].descriptorCount = 1;
+		// descriptor_writes[0].pBufferInfo	 = &buffer_info;
 
 		descriptor_writes[0].sType	= VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		descriptor_writes[0].dstSet = _descriptor_sets[i];
-		descriptor_writes[0].dstBinding		 = 0;
+		descriptor_writes[0].dstBinding		 = 1;
 		descriptor_writes[0].dstArrayElement = 0;
-		descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptor_writes[0].descriptorCount = 1;
-		descriptor_writes[0].pBufferInfo	 = &buffer_info;
-
-		descriptor_writes[1].sType	= VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptor_writes[1].dstSet = _descriptor_sets[i];
-		descriptor_writes[1].dstBinding		 = 1;
-		descriptor_writes[1].dstArrayElement = 0;
-		descriptor_writes[1].descriptorType =
+		descriptor_writes[0].descriptorType =
 				VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		descriptor_writes[1].descriptorCount = 1;
-		descriptor_writes[1].pImageInfo		 = &image_info;
+		descriptor_writes[0].descriptorCount = 1;
+		descriptor_writes[0].pImageInfo		 = &image_info;
 
 		vkUpdateDescriptorSets(
 				_vkb_device.device,
@@ -1333,38 +1341,38 @@ Error Renderer::create_descriptor_sets() {
 	return OK;
 }
 
-Error Renderer::update_uniform_buffer(uint32_t image_index) {
+// Error Renderer::update_uniform_buffer(uint32_t image_index) {
 
-	static auto start_time = std::chrono::high_resolution_clock::now();
-	auto current_time	   = std::chrono::high_resolution_clock::now();
+// 	static auto start_time = std::chrono::high_resolution_clock::now();
+// 	auto current_time	   = std::chrono::high_resolution_clock::now();
 
-	float time = std::chrono::duration<float, std::chrono::seconds::period>(
-						 current_time - start_time)
-						 .count();
+// 	float time = std::chrono::duration<float, std::chrono::seconds::period>(
+// 						 current_time - start_time)
+// 						 .count();
 
-	UniformBufferObject ubo = {};
-	ubo.model				= glm::rotate(
-			  glm::mat4(1.0f),
-			  time * glm::radians(90.0f),
-			  glm::vec3(0.0f, 0.0f, 1.0f));
-	ubo.view = glm::lookAt(
-			glm::vec3(2.0f, 2.0f, 2.0f),
-			glm::vec3(0.0f, 0.0f, 0.0f),
-			glm::vec3(0.0f, 0.0f, 1.0f));
-	ubo.proj = glm::perspective(
-			glm::radians(45.0f),
-			_vkb_swapchain.extent.width / (float)_vkb_swapchain.extent.height,
-			0.1f,
-			10.0f);
-	ubo.proj[1][1] *= -1;
+// 	UniformBufferObject ubo = {};
+// 	ubo.model				= glm::rotate(
+// 			  glm::mat4(1.0f),
+// 			  time * glm::radians(90.0f),
+// 			  glm::vec3(0.0f, 0.0f, 1.0f));
+// 	ubo.view = glm::lookAt(
+// 			glm::vec3(2.0f, 2.0f, 2.0f),
+// 			glm::vec3(0.0f, 0.0f, 0.0f),
+// 			glm::vec3(0.0f, 0.0f, 1.0f));
+// 	ubo.proj = glm::perspective(
+// 			glm::radians(45.0f),
+// 			_vkb_swapchain.extent.width / (float)_vkb_swapchain.extent.height,
+// 			0.1f,
+// 			10.0f);
+// 	ubo.proj[1][1] *= -1;
 
-	void *data;
-	vmaMapMemory(_vma_allocator, _uniform_buffers[image_index].alloc, &data);
-	memcpy(data, &ubo, sizeof(ubo));
-	vmaUnmapMemory(_vma_allocator, _uniform_buffers[image_index].alloc);
+// 	void *data;
+// 	vmaMapMemory(_vma_allocator, _uniform_buffers[image_index].alloc, &data);
+// 	memcpy(data, &ubo, sizeof(ubo));
+// 	vmaUnmapMemory(_vma_allocator, _uniform_buffers[image_index].alloc);
 
-	return OK;
-}
+// 	return OK;
+// }
 
 Error Renderer::create_buffer(
 		Buffer *buffer,
@@ -1605,10 +1613,10 @@ Error Renderer::recreate_swapchain() {
 			create_framebuffers(),
 			FAIL,
 			"Failed to create_framebuffers when recreating swapchain.");
-	ERR_FAIL_COND_V_MSG(
-			create_uniform_buffers(),
-			FAIL,
-			"Failed to create_uniform_buffers when recreating swapchain.");
+	// ERR_FAIL_COND_V_MSG(
+	// create_uniform_buffers(),
+	// FAIL,
+	// "Failed to create_uniform_buffers when recreating swapchain.");
 	ERR_FAIL_COND_V_MSG(
 			create_descriptor_pool(),
 			FAIL,
@@ -1650,9 +1658,9 @@ Error Renderer::destroy_swapchain() {
 
 	_vkb_swapchain.destroy_image_views(_swapchain_image_views);
 
-	for (size_t i = 0; i < _swapchain_images.size(); i++) {
-		destroy_and_free_buffer(&_uniform_buffers[i]);
-	}
+	// for (size_t i = 0; i < _swapchain_images.size(); i++) {
+	// destroy_and_free_buffer(&_uniform_buffers[i]);
+	// }
 
 	vkDestroyDescriptorPool(_vkb_device.device, _descriptor_pool, nullptr);
 
@@ -1733,11 +1741,35 @@ Error Renderer::draw_scene(VkCommandBuffer cmd_buf, uint32_t image_index) {
 
 	VkDebug::begin_label(cmd_buf, "draw scene");
 
+	// static auto start_time = std::chrono::high_resolution_clock::now();
+	// auto current_time	   = std::chrono::high_resolution_clock::now();
+
+	// float time = std::chrono::duration<float, std::chrono::seconds::period>(
+	// 					 current_time - start_time)
+	// 					 .count();
+
+	// ubo.model = glm::rotate(
+	// 		glm::mat4(1.0f),
+	// 		time * glm::radians(90.0f),
+	// 		glm::vec3(0.0f, 0.0f, 1.0f));
+
 	RenderObject::DrawContext ctx {
+		.renderer	 = this,
 		.cmd_buf	 = cmd_buf,
 		.image_index = image_index,
 		.prev_object = nullptr,
 	};
+
+	ctx.view = glm::lookAt(
+			glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)),
+	ctx.proj = glm::perspective(
+			glm::radians(45.0f),
+			_vkb_swapchain.extent.width / (float)_vkb_swapchain.extent.height,
+			0.1f,
+			10.0f);
+	ctx.proj[1][1] *= -1;
 
 	for (RenderObject *render_object : _render_objects) {
 
@@ -1802,7 +1834,7 @@ Error Renderer::draw_frame() {
 	}
 	_images_in_flight[image_index] = _in_flight_fences[_current_frame];
 
-	update_uniform_buffer(image_index);
+	// update_uniform_buffer(image_index);
 
 	// now we can start drawing.
 

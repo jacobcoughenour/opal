@@ -1,6 +1,7 @@
 {
 	"cmake.configureOnOpen": true,
 	"clangd.arguments": ["--header-insertion=never"],
+	"shaderc-lint.glslcArgs": "--target-env=vulkan1.1 --target-spv=spv1.4",
 	"files.associations": {
 		"vector": "cpp",
 		"xstring": "cpp",
