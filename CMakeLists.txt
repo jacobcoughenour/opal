@@ -27,4 +27,6 @@ add_definitions(-DVULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
 include(${CMAKE_BINARY_DIR}/conan.cmake)
 conan_cmake_run(CONANFILE conanfile.txt BASIC_SETUP BUILD missing PROFILE clang)
 
+SET(THIRDPARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty)
+
 add_subdirectory(src)

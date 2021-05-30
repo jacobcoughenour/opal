@@ -12,7 +12,8 @@
 
 // #define VMA_IMPLEMENTATION
 // #define VMA_STATIC_VULKAN_FUNCTIONS 0
-#include "vk_mem_alloc.h"
+// #include "vk_mem_alloc.h"
+#include "../../thirdparty/vulkan-memory-allocator/vk_mem_alloc.h"
 
 /**
  * volk is used to load in Vulkan.
@@ -26,7 +27,8 @@
  */
 #include <VkBootstrap.h>
 
-#include "spirv-reflect/spirv_reflect.h"
+// #include "spirv-reflect/spirv_reflect.h"
+#include "../../thirdparty/spirv-reflect/spirv_reflect.h"
 
 /**
  * GLFW handles the window and inputs.
