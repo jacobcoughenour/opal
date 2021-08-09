@@ -163,10 +163,11 @@ Error Renderer::create_vk_instance() {
 			   VkDebugUtilsMessageTypeFlagsEXT messageType,
 			   const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
 			   void *pUserData) -> VkBool32 {
-				LOG("VK [%s: %s]\n\t%s\n",
-					vkb::to_string_message_severity(messageSeverity),
-					vkb::to_string_message_type(messageType),
-					pCallbackData->pMessage);
+				LOG_DEBUG(
+						"VK [%s: %s]\n\t%s\n",
+						vkb::to_string_message_severity(messageSeverity),
+						vkb::to_string_message_type(messageType),
+						pCallbackData->pMessage);
 				return VK_FALSE;
 			});
 #endif
@@ -499,26 +500,25 @@ Error Renderer::create_descriptor_set_layout() {
 
 Error Renderer::create_graphics_pipeline() {
 
-	auto vert_shader = createShaderModuleFromFile(
-			_vkb_device.device, "shaders/vert_shader.vert");
-	auto frag_shader = createShaderModuleFromFile(
-			_vkb_device.device, "shaders/frag_shader.frag");
+	Shader vert_shader;
+	ERR_TRY(createShaderFromFile(
+			_vkb_device.device, &vert_shader, "shaders/vert_shader.vert"));
 
-	if (vert_shader == VK_NULL_HANDLE || frag_shader == VK_NULL_HANDLE) {
-		return FAIL;
-	}
+	Shader frag_shader;
+	ERR_TRY(createShaderFromFile(
+			_vkb_device.device, &frag_shader, "shaders/frag_shader.frag"));
 
 	VkPipelineShaderStageCreateInfo vert_stage_info {
 		.sType	= VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 		.stage	= VK_SHADER_STAGE_VERTEX_BIT,
-		.module = vert_shader,
+		.module = vert_shader.module,
 		.pName	= "main",
 	};
 
 	VkPipelineShaderStageCreateInfo frag_stage_info {
 		.sType	= VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 		.stage	= VK_SHADER_STAGE_FRAGMENT_BIT,
-		.module = frag_shader,
+		.module = frag_shader.module,
 		.pName	= "main",
 	};
 
@@ -677,8 +677,8 @@ Error Renderer::create_graphics_pipeline() {
 			err != VK_SUCCESS, FAIL, "Failed to create graphics pipeline");
 
 	// clean up shader modules
-	vkDestroyShaderModule(_vkb_device.device, frag_shader, nullptr);
-	vkDestroyShaderModule(_vkb_device.device, vert_shader, nullptr);
+	destroyShader(_vkb_device.device, &frag_shader);
+	destroyShader(_vkb_device.device, &vert_shader);
 
 	return OK;
 }

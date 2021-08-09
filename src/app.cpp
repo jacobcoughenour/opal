@@ -14,6 +14,51 @@ int App::run() {
 		return EXIT_FAILURE;
 	}
 
+	// initialize resources
+	//
+	// ShaderMaterial material = {
+	// 	.fragment_shader = loadShader("shaders/frag_shader.frag"),
+	// 	.vertex_shader = loadShader("shaders/vert_shader.vert"),
+	// 	.uniforms = {
+	// 		texture = loadTexture("textures/.."),
+	// 	},
+	// };
+
+	// Mesh mesh = {
+	// 	.name = "mesh",
+	// 	.geometry = CubeGeometry { 1, 1, 1 },
+	// 	.material = material,
+	// };
+
+	// build the scene
+	//
+	// Scene scene;
+
+	// MeshInstance mesh_inst = {
+	// 	.name = "mesh instance",
+	// 	.mesh = mesh,
+	// 	.transform = mat4(1.0f),
+	// };
+
+	// scene.add(mesh_inst);
+
+	// Camera camera = {
+	// 	.fov = 70,
+	// 	.near = 0.1,
+	// 	.far = 1000,
+	// 	.transform = translate(mat4(1.0f), vec3(0.0f, 0.0f, 0.0f)),
+	// };
+
+	// renderer.start_render_loop(() => {
+	// 	renderer.render(scene, camera);
+	// });
+	//
+	// renderer.destroy();
+	//
+	// return EXIT_SUCCESS;
+
+	// todo
+
 	Renderer::Mesh mesh_1 { .name = "viking room mesh" };
 	Renderer::Mesh::load_from_obj(&mesh_1, "assets/models/viking_room.obj");
 	MeshInstance inst_1 { "instance 1", &mesh_1 };

@@ -7,7 +7,15 @@
 /**
  * Logs a message with string formatting support.
  */
-#define LOG(...) _log_fprintf(stdout, __VA_ARGS__)
+#define LOG_INFO(...) _log_fprintf(stdout, __VA_ARGS__)
+/**
+ * Logs a message with string formatting support.
+ */
+#define LOG_DEBUG(...) _log_fprintf(stdout, __VA_ARGS__)
+/**
+ * Logs a message with string formatting support.
+ */
+#define LOG_WARN(...) _log_fprintf(stdout, __VA_ARGS__)
 /**
  * Logs error message with location and string formatting support.
  */

@@ -4,6 +4,7 @@
 // some of these were inspired by Godot:
 // https://github.com/godotengine/godot/blob/7c721859170881a0e9f1e314837ba9fe28dc5110/core/error/error_macros.h
 
+#include "../typedefs.h"
 #include "log.h"
 #include <stdarg.h>
 

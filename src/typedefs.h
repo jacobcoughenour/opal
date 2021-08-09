@@ -4,8 +4,6 @@
 // some of these were inspired by Godot:
 // https://github.com/godotengine/godot/blob/8e8cad5bc964418bf8e156e830fae82102bc2988/core/typedefs.h
 
-#include "utils/error.h"
-
 // Turn argument to string constant:
 // https://gcc.gnu.org/onlinedocs/cpp/Stringizing.html#Stringizing
 #ifndef _STR

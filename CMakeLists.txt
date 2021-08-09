@@ -24,6 +24,9 @@ else ()
 endif (WIN32)
 add_definitions(-DVULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
 
+# this disables the annoying warnings from building conan libraries
+set(CONAN_SYSTEM_INCLUDES ON)
+
 include(${CMAKE_BINARY_DIR}/conan.cmake)
 conan_cmake_run(CONANFILE conanfile.txt BASIC_SETUP BUILD missing PROFILE clang)
 

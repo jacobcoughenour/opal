@@ -27,6 +27,10 @@
  */
 #include <VkBootstrap.h>
 
+/**
+ * SPIRV-Reflect provides reflection for spirv shader code.
+ * https://github.com/KhronosGroup/SPIRV-Reflect
+ */
 // #include "spirv-reflect/spirv_reflect.h"
 #include "../../thirdparty/spirv-reflect/spirv_reflect.h"
 

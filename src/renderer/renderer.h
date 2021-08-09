@@ -147,10 +147,6 @@ public:
 
 	struct Uniform {};
 
-	struct Shader {
-		std::vector<Uniform> uniforms;
-	};
-
 	struct Mesh {
 		const char *name = nullptr;
 
