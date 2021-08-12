@@ -1,7 +1,5 @@
 set(renderer_SOURCES 
 	config.h 
-	render_object.h
-	render_object.cpp
 	renderer.h 
 	renderer.cpp 
 	vk_debug.h

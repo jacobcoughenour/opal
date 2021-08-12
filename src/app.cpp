@@ -1,5 +1,6 @@
 #include "app.h"
-#include "renderer/render_object.h"
+#include "scene/mesh_instance.h"
+#include "scene/scene.h"
 
 using namespace Opal;
 using namespace glm;
@@ -59,18 +60,20 @@ int App::run() {
 
 	// todo
 
+	Node3D scene { "demo scene" };
+
 	Renderer::Mesh mesh_1 { .name = "viking room mesh" };
 	Renderer::Mesh::load_from_obj(&mesh_1, "assets/models/viking_room.obj");
 	MeshInstance inst_1 { "instance 1", &mesh_1 };
 	inst_1.transform = translate(mat4(1.0f), vec3(0.0f, 0.0f, 0.0f));
-	_renderer.add_render_object(&inst_1);
+	scene.add_child(&inst_1);
 
 	Renderer::Mesh mesh_2 { .name = "sphere mesh" };
 	Renderer::Mesh::load_from_obj(&mesh_2, "assets/models/sphere.obj");
 	MeshInstance inst_2 { "instance 2", &mesh_2 };
 	inst_2.transform =
 			scale(translate(mat4(1.0f), vec3(0.0f, 0.0f, 0.5f)), vec3(0.2f));
-	_renderer.add_render_object(&inst_2);
+	scene.add_child(&inst_2);
 
 	Renderer::Mesh mesh_3 { .name = "plane mesh" };
 	Renderer::Mesh::load_from_obj(&mesh_3, "assets/models/plane.obj");
@@ -79,7 +82,11 @@ int App::run() {
 			translate(scale(mat4(1.0f), vec3(0.05f)), vec3(0.0f, 0.0f, -0.1f)),
 			pi<float>() * 0.5f,
 			vec3(1.0f, 0.0f, 0.0f));
-	_renderer.add_render_object(&inst_3);
+	scene.add_child(&inst_3);
+
+	_renderer.set_render_object(&scene);
+
+	scene.remove_child(&inst_2);
 
 	_renderer.start_render_loop();
 

@@ -1,4 +1,4 @@
-#include "render_object.h"
+#include "mesh_instance.h"
 
 using namespace Opal;
 
@@ -12,6 +12,7 @@ void MeshInstance::set_material(Material *material) {
 }
 
 void MeshInstance::init() {
+
 	// static auto start_time = std::chrono::high_resolution_clock::now();
 	// auto current_time	   = std::chrono::high_resolution_clock::now();
 
@@ -25,7 +26,8 @@ void MeshInstance::init() {
 	// 		glm::vec3(0.0f, 0.0f, 1.0f));
 }
 
-void MeshInstance::update() {
+void MeshInstance::update(float delta) {
+
 	// static auto start_time = std::chrono::high_resolution_clock::now();
 	// auto current_time	   = std::chrono::high_resolution_clock::now();
 
@@ -39,9 +41,9 @@ void MeshInstance::update() {
 	// 		glm::vec3(0.0f, 0.0f, 1.0f));
 }
 
-void MeshInstance::draw(DrawContext context) {
+void MeshInstance::draw(DrawContext *context) {
 
-	MeshInstance *prev = (MeshInstance *)context.prev_object;
+	MeshInstance *prev = (MeshInstance *)context->prev_object;
 
 	// skip if previous object used the same material
 	if (prev == nullptr || prev->_material != _material) {
@@ -49,20 +51,20 @@ void MeshInstance::draw(DrawContext context) {
 		// bind the material
 
 		vkCmdBindPipeline(
-				context.cmd_buf,
+				context->cmd_buf,
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				context.renderer->_graphics_pipeline
+				context->renderer->_graphics_pipeline
 				// material->pipeline
 		);
 
 		vkCmdBindDescriptorSets(
-				context.cmd_buf,
+				context->cmd_buf,
 				VK_PIPELINE_BIND_POINT_GRAPHICS,
-				context.renderer->_pipeline_layout,
+				context->renderer->_pipeline_layout,
 				// material->pipeline_layout,
 				0,
 				1,
-				&context.renderer->_descriptor_sets[context.image_index],
+				&context->renderer->_descriptor_sets[context->image_index],
 				// &_descriptor_sets[image_index],
 				0,
 				nullptr);
@@ -72,12 +74,12 @@ void MeshInstance::draw(DrawContext context) {
 
 	Renderer::PushConstants push_constants {
 		.model = transform,
-		.view  = context.view,
-		.proj  = context.proj,
+		.view  = context->view,
+		.proj  = context->proj,
 	};
 	vkCmdPushConstants(
-			context.cmd_buf,
-			context.renderer->_pipeline_layout,
+			context->cmd_buf,
+			context->renderer->_pipeline_layout,
 			VK_SHADER_STAGE_VERTEX_BIT,
 			0,
 			sizeof(Renderer::PushConstants),
@@ -91,9 +93,9 @@ void MeshInstance::draw(DrawContext context) {
 		VkBuffer vertex_buffers[] = { _mesh->vertex_buffer.buffer };
 		VkDeviceSize offsets[]	  = { 0 };
 
-		vkCmdBindVertexBuffers(context.cmd_buf, 0, 1, vertex_buffers, offsets);
+		vkCmdBindVertexBuffers(context->cmd_buf, 0, 1, vertex_buffers, offsets);
 		vkCmdBindIndexBuffer(
-				context.cmd_buf,
+				context->cmd_buf,
 				_mesh->index_buffer.buffer,
 				// offset
 				0,
@@ -104,7 +106,7 @@ void MeshInstance::draw(DrawContext context) {
 	// draw the geometry
 
 	vkCmdDrawIndexed(
-			context.cmd_buf,
+			context->cmd_buf,
 			// index count
 			static_cast<uint32_t>(_mesh->indices.size()),
 			// instance count
@@ -116,6 +118,3 @@ void MeshInstance::draw(DrawContext context) {
 			// first instance
 			0);
 }
-
-void VolumeInstance::init() {}
-void VolumeInstance::draw(DrawContext context) {}

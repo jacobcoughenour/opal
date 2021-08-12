@@ -1,4 +1,5 @@
 add_subdirectory(renderer)
+add_subdirectory(scene)
 add_subdirectory(shaders)
 add_subdirectory(utils)
 
@@ -6,7 +7,7 @@ set(${PROJECT_NAME}_SOURCES app.cpp app.h typedefs.h main.cpp)
 
 add_executable(${PROJECT_NAME} ${${PROJECT_NAME}_SOURCES})
 
-target_link_libraries(${PROJECT_NAME} ${CONAN_LIBS} renderer utils)
+target_link_libraries(${PROJECT_NAME} ${CONAN_LIBS} renderer scene utils)
 
 add_dependencies(${PROJECT_NAME} shaders)
 

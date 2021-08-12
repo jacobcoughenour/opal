@@ -116,11 +116,9 @@ void Renderer::add_mesh(Mesh *mesh) {
 	_meshes.emplace(mesh);
 }
 
-void Renderer::add_render_object(RenderObject *render_object) {
-
-	render_object->init();
-
-	_render_objects.push_back(render_object);
+void Renderer::set_render_object(RenderObject *render_object) {
+	_scene_root = render_object;
+	_scene_root->_set_tree_root(_scene_root);
 }
 
 Error Renderer::create_window() {
@@ -1727,6 +1725,8 @@ void Renderer::start_render_loop() {
 	while (!glfwWindowShouldClose(_window)) {
 		glfwPollEvents();
 
+		ERR_BREAK_MSG(send_update() != OK, "Failed to send update");
+
 		// skip draw if minimized
 		if (!glfwGetWindowAttrib(_window, GLFW_VISIBLE))
 			continue;
@@ -1737,28 +1737,32 @@ void Renderer::start_render_loop() {
 	vkDeviceWaitIdle(_vkb_device.device);
 }
 
+Error Renderer::send_update() {
+
+	static auto last_frame_time = glfwGetTime();
+	const auto now				= glfwGetTime();
+
+	// LOG_DEBUG("time: %f", now);
+
+	_scene_root->_propigate_update(now - last_frame_time);
+
+	last_frame_time = now;
+
+	return OK;
+}
+
+void DrawContext::draw(RenderObject *object) {
+	VkDebug::begin_label(cmd_buf, object->name);
+	object->draw(this);
+	prev_object = object;
+	VkDebug::end_label(cmd_buf);
+}
+
 Error Renderer::draw_scene(VkCommandBuffer cmd_buf, uint32_t image_index) {
 
 	VkDebug::begin_label(cmd_buf, "draw scene");
 
-	// static auto start_time = std::chrono::high_resolution_clock::now();
-	// auto current_time	   = std::chrono::high_resolution_clock::now();
-
-	// float time = std::chrono::duration<float, std::chrono::seconds::period>(
-	// 					 current_time - start_time)
-	// 					 .count();
-
-	// ubo.model = glm::rotate(
-	// 		glm::mat4(1.0f),
-	// 		time * glm::radians(90.0f),
-	// 		glm::vec3(0.0f, 0.0f, 1.0f));
-
-	RenderObject::DrawContext ctx {
-		.renderer	 = this,
-		.cmd_buf	 = cmd_buf,
-		.image_index = image_index,
-		.prev_object = nullptr,
-	};
+	DrawContext ctx(this, cmd_buf, image_index);
 
 	ctx.view = glm::lookAt(
 			glm::vec3(2.0f, 2.0f, 2.0f),
@@ -1771,15 +1775,8 @@ Error Renderer::draw_scene(VkCommandBuffer cmd_buf, uint32_t image_index) {
 			10.0f);
 	ctx.proj[1][1] *= -1;
 
-	for (RenderObject *render_object : _render_objects) {
-
-		VkDebug::begin_label(cmd_buf, render_object->name);
-
-		render_object->draw(ctx);
-		ctx.prev_object = render_object;
-
-		VkDebug::end_label(cmd_buf);
-	}
+	if (_scene_root != nullptr)
+		ctx.draw(_scene_root);
 
 	VkDebug::end_label(cmd_buf);
 

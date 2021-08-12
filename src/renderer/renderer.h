@@ -23,6 +23,7 @@
 namespace Opal {
 
 class Renderer;
+class RenderObject;
 
 const std::string TEXTURE_PATH = "assets/models/viking_room.png";
 
@@ -74,26 +75,50 @@ struct Vertex {
 	}
 };
 
-class RenderObject {
+class DrawContext {
 public:
-	struct DrawContext {
-		Renderer *renderer;
-		VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
-		uint32_t image_index;
-		RenderObject *prev_object = nullptr;
-		glm::mat4 view;
-		glm::mat4 proj;
-	};
+	Renderer *renderer;
+	VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
+	uint32_t image_index;
+	RenderObject *prev_object = nullptr;
+	glm::mat4 view;
+	glm::mat4 proj;
+
+	DrawContext(
+			Renderer *renderer, VkCommandBuffer cmd_buf, uint32_t image_index) :
+			renderer(renderer), cmd_buf(cmd_buf), image_index(image_index) {}
+
+	void draw(RenderObject *object);
+};
+
+class RenderObject {
+
+public:
+	/**
+	 * A custom name used to identify this object in tools and debugging.
+	 */
+	const char *name = nullptr;
 
 	RenderObject() : name("RenderObject") {}
 	explicit RenderObject(const char *name) : name(name) {}
 
-	glm::mat4 transform;
-	const char *name = nullptr;
+	/**
+	 * Called when the object is added to the active rendering tree.
+	 */
+	virtual void init() = 0;
 
-	virtual void init()					   = 0;
-	virtual void update()				   = 0;
-	virtual void draw(DrawContext context) = 0;
+	/**
+	 * Called every frame before the object is rendered.
+	 */
+	virtual void update(float delta) = 0;
+
+	/**
+	 * Called by the renderer to render this object.
+	 */
+	virtual void draw(DrawContext *context) = 0;
+
+	virtual void _propigate_update(float delta)		= 0;
+	virtual void _set_tree_root(RenderObject *root) = 0;
 
 	virtual ~RenderObject() = default;
 };
@@ -161,14 +186,14 @@ public:
 
 	bool has_mesh(Mesh *mesh);
 	void add_mesh(Mesh *mesh);
-	void add_render_object(RenderObject *render_object);
+	void set_render_object(RenderObject *object);
 
 protected:
 	bool _initialized;
 
 	std::set<Mesh *> _meshes;
 
-	std::vector<RenderObject *> _render_objects;
+	RenderObject *_scene_root;
 
 	// window stuff
 	GLFWwindow *_window;
@@ -248,6 +273,8 @@ protected:
 			VkFormatFeatureFlags features);
 	VkFormat find_depth_format();
 	bool has_stencil_component(VkFormat format);
+
+	Error send_update();
 
 	Error draw_scene(VkCommandBuffer cmd_buf, uint32_t image_index);
 	Error draw_frame();
