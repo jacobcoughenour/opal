@@ -121,6 +121,60 @@ void Renderer::set_render_object(RenderObject *render_object) {
 	_scene_root->_set_tree_root(_scene_root);
 }
 
+void Renderer::center_window(GLFWwindow *window, GLFWmonitor *monitor) {
+	if (!monitor)
+		return;
+
+	const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+	if (!mode)
+		return;
+
+	int x, y;
+	int w, h;
+	glfwGetMonitorPos(monitor, &x, &y);
+	glfwGetWindowSize(window, &w, &h);
+
+	glfwSetWindowPos(
+			window, x + (mode->width - w) / 2, y + (mode->height - h) / 2);
+}
+
+void Renderer::glfw_key_callback(
+		GLFWwindow *window, int key, int scancode, int action, int mods) {
+	Renderer::singleton->_key_callback(key, scancode, action, mods);
+}
+void Renderer::glfw_char_callback(GLFWwindow *window, unsigned int codepoint) {
+	Renderer::singleton->_char_callback(codepoint);
+}
+void Renderer::glfw_cursor_pos_callback(
+		GLFWwindow *window, double x, double y) {
+	Renderer::singleton->_cursor_pos_callback(x, y);
+}
+void Renderer::glfw_mouse_button_callback(
+		GLFWwindow *window, int button, int action, int mods) {
+	Renderer::singleton->_mouse_button_callback(button, action, mods);
+}
+
+void Renderer::_key_callback(int key, int scancode, int action, int mods) {
+	if (_scene_root) {
+		_scene_root->_propogate_input_key(key, scancode, action, mods);
+	}
+}
+void Renderer::_char_callback(unsigned int codepoint) {
+	if (_scene_root) {
+		_scene_root->_propogate_input_char(codepoint);
+	}
+}
+void Renderer::_cursor_pos_callback(double x, double y) {
+	if (_scene_root) {
+		_scene_root->_propogate_input_cursor_pos(x, y);
+	}
+}
+void Renderer::_mouse_button_callback(int button, int action, int mods) {
+	if (_scene_root) {
+		_scene_root->_propogate_input_mouse_button(button, action, mods);
+	}
+}
+
 Error Renderer::create_window() {
 
 	// set callback for logging glfw errors
@@ -136,6 +190,11 @@ Error Renderer::create_window() {
 	// create window
 	_window =
 			glfwCreateWindow(WINDOW_INIT_SIZE, WINDOW_TITLE, nullptr, nullptr);
+
+	glfwSetKeyCallback(_window, glfw_key_callback);
+	glfwSetCharCallback(_window, glfw_char_callback);
+	glfwSetCursorPosCallback(_window, glfw_cursor_pos_callback);
+	glfwSetMouseButtonCallback(_window, glfw_mouse_button_callback);
 
 	return OK;
 }

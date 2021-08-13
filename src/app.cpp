@@ -1,9 +1,10 @@
 #include "app.h"
-#include "scene/mesh_instance.h"
-#include "scene/scene.h"
+#include "utils/log.h"
 
 using namespace Opal;
 using namespace glm;
+
+void DemoNode::input_key(int key, int scancode, int action, int mods) {}
 
 App::App(int argc, char **argv) {
 	_renderer = Renderer {};
@@ -73,7 +74,7 @@ int App::run() {
 	MeshInstance inst_2 { "instance 2", &mesh_2 };
 	inst_2.transform =
 			scale(translate(mat4(1.0f), vec3(0.0f, 0.0f, 0.5f)), vec3(0.2f));
-	scene.add_child(&inst_2);
+	inst_1.add_child(&inst_2);
 
 	Renderer::Mesh mesh_3 { .name = "plane mesh" };
 	Renderer::Mesh::load_from_obj(&mesh_3, "assets/models/plane.obj");
@@ -84,7 +85,12 @@ int App::run() {
 			vec3(1.0f, 0.0f, 0.0f));
 	scene.add_child(&inst_3);
 
+	DemoNode node {};
+	scene.add_child(&node);
+
 	_renderer.set_render_object(&scene);
+
+	scene.print_tree();
 
 	scene.remove_child(&inst_2);
 

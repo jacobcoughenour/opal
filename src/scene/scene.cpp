@@ -25,6 +25,38 @@ void Node3D::_propigate_update(float delta) {
 	update(delta);
 }
 
+void Node3D::_propogate_input_key(int key, int scancode, int action, int mods) {
+	for (Node3D *child : _children) {
+		child->_propogate_input_key(key, scancode, action, mods);
+	}
+	LOG_DEBUG(
+			"input_key: name=%s key=%d scancode=%d action=%d mods=%d",
+			name,
+			key,
+			scancode,
+			action,
+			mods);
+	input_key(key, scancode, action, mods);
+}
+void Node3D::_propogate_input_char(unsigned int codepoint) {
+	for (Node3D *child : _children) {
+		child->_propogate_input_char(codepoint);
+	}
+	input_char(codepoint);
+}
+void Node3D::_propogate_input_cursor_pos(double x, double y) {
+	for (Node3D *child : _children) {
+		child->_propogate_input_cursor_pos(x, y);
+	}
+	input_cursor_pos(x, y);
+}
+void Node3D::_propogate_input_mouse_button(int button, int action, int mods) {
+	for (Node3D *child : _children) {
+		child->_propogate_input_mouse_button(button, action, mods);
+	}
+	input_mouse_button(button, action, mods);
+}
+
 void Node3D::init() {}
 
 void Node3D::update(float delta) {}
@@ -34,6 +66,14 @@ void Node3D::draw(DrawContext *context) {
 		context->draw(child);
 	}
 }
+
+void Node3D::input_key(int key, int scancode, int action, int mods) {}
+
+void Node3D::input_char(unsigned int codepoint) {}
+
+void Node3D::input_cursor_pos(double x, double y) {}
+
+void Node3D::input_mouse_button(int button, int action, int mods) {}
 
 bool Node3D::is_ancestor_of(Node3D *node) {
 
@@ -74,4 +114,24 @@ void Node3D::remove_child(Node3D *child) {
 	ERR_FAIL_COND_MSG(child == nullptr, "child is null");
 
 	auto ret = std::remove(_children.begin(), _children.end(), child);
+}
+
+void Node3D::print_tree() const {
+	_print_tree(0, false);
+}
+
+void Node3D::_print_tree(int depth, bool is_last) const {
+	std::string indent = depth == 0 ? "" : " ";
+	for (int i = 1; i < depth; i++)
+		indent += "| ";
+
+	LOG_DEBUG(
+			"%s%s%s",
+			indent.c_str(),
+			depth == 0 ? "" : (is_last ? "└ " : "├ "),
+			name);
+
+	const auto child_count = _children.size();
+	for (int i = 0; i < child_count; i++)
+		_children[i]->_print_tree(depth + 1, child_count - 1 == i);
 }

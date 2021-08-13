@@ -120,6 +120,13 @@ public:
 	virtual void _propigate_update(float delta)		= 0;
 	virtual void _set_tree_root(RenderObject *root) = 0;
 
+	virtual void
+	_propogate_input_key(int key, int scancode, int action, int mods) = 0;
+	virtual void _propogate_input_char(unsigned int codepoint)		  = 0;
+	virtual void _propogate_input_cursor_pos(double x, double y)	  = 0;
+	virtual void
+	_propogate_input_mouse_button(int button, int action, int mods) = 0;
+
 	virtual ~RenderObject() = default;
 };
 
@@ -282,6 +289,21 @@ protected:
 	Error recreate_swapchain();
 	Error destroy_swapchain();
 
+	// window stuff
+	void center_window(GLFWwindow *window, GLFWmonitor *monitor);
+
+	static void glfw_key_callback(
+			GLFWwindow *window, int key, int scancode, int action, int mods);
+	static void glfw_char_callback(GLFWwindow *window, unsigned int codepoint);
+	static void
+	glfw_cursor_pos_callback(GLFWwindow *window, double x, double y);
+	static void glfw_mouse_button_callback(
+			GLFWwindow *window, int button, int action, int mods);
+
+	void _key_callback(int key, int scancode, int action, int mods);
+	void _char_callback(unsigned int codepoint);
+	void _cursor_pos_callback(double x, double y);
+	void _mouse_button_callback(int button, int action, int mods);
 /**
  * @brief Utility macro for running a single time command.
  *
